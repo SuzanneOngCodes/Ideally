@@ -20,6 +20,7 @@ import { InteractiveResearchWorkspace } from './components/InteractiveResearchWo
 import { AcademicSearchModal } from './components/AcademicSearchModal';
 import { TerminologyGlossaryModal } from './components/TerminologyGlossaryModal';
 import { EvidencePrinciplesModal } from './components/EvidencePrinciplesModal';
+import { TechStackModal } from './components/TechStackModal';
 import { PRESET_SCENARIOS, PresetScenario } from './data/presetScenarios';
 import { ResearchBrief, UserIntake, SocraticDefenseProbe, EvidenceAuditReport, AudienceMode, ResearchMapCard, StructuredEvidenceSource } from './types/research';
 import { generateMarkdownBrief, downloadMarkdownFile } from './utils/exportBrief';
@@ -37,6 +38,7 @@ export default function App() {
   const [isGlossaryOpen, setIsGlossaryOpen] = useState(false);
   const [glossaryTerm, setGlossaryTerm] = useState('');
   const [isPrinciplesOpen, setIsPrinciplesOpen] = useState(false);
+  const [isTechStackOpen, setIsTechStackOpen] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [statusMessage, setStatusMessage] = useState<string | null>(null);
 
@@ -247,6 +249,7 @@ export default function App() {
         onOpenSearch={() => setIsSearchOpen(true)}
         onOpenGlossary={handleOpenGlossary}
         onOpenPrinciples={() => setIsPrinciplesOpen(true)}
+        onOpenTechStack={() => setIsTechStackOpen(true)}
       />
 
       {/* Guided Research Journey Ribbon — only shown when navigating the 5 linear brief stages */}
@@ -427,6 +430,12 @@ export default function App() {
       <EvidencePrinciplesModal
         isOpen={isPrinciplesOpen}
         onClose={() => setIsPrinciplesOpen(false)}
+      />
+
+      {/* Full-Stack Architecture & Tech Stack Map Modal */}
+      <TechStackModal
+        isOpen={isTechStackOpen}
+        onClose={() => setIsTechStackOpen(false)}
       />
     </div>
   );

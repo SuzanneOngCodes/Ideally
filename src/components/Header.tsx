@@ -10,7 +10,8 @@ import {
   Search,
   ChevronDown,
   Plus,
-  FolderOpen
+  FolderOpen,
+  Layers
 } from 'lucide-react';
 import { LanguageSelector } from './LanguageSelector';
 import { useLanguage } from '../context/LanguageContext';
@@ -28,6 +29,7 @@ interface HeaderProps {
   onOpenSearch?: () => void;
   onOpenGlossary?: () => void;
   onOpenPrinciples?: () => void;
+  onOpenTechStack?: () => void;
 }
 
 export const Header: React.FC<HeaderProps> = ({
@@ -41,6 +43,7 @@ export const Header: React.FC<HeaderProps> = ({
   onOpenSearch,
   onOpenGlossary,
   onOpenPrinciples,
+  onOpenTechStack,
 }) => {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [resourcesOpen, setResourcesOpen] = useState(false);
@@ -228,6 +231,19 @@ export const Header: React.FC<HeaderProps> = ({
                     </div>
                   </button>
                 )}
+
+                {onOpenTechStack && (
+                  <button
+                    onClick={() => { onOpenTechStack(); setResourcesOpen(false); }}
+                    className="w-full text-left px-3.5 py-2 text-xs font-medium text-slate-700 hover:bg-slate-50 flex items-center gap-2.5 transition-colors border-t border-slate-100"
+                  >
+                    <Layers className="w-4 h-4 text-indigo-600 shrink-0" />
+                    <div>
+                      <div className="font-semibold text-slate-800">System Architecture</div>
+                      <div className="text-[11px] text-slate-400">Interactive tech stack & data flow</div>
+                    </div>
+                  </button>
+                )}
               </div>
             )}
           </div>
@@ -382,6 +398,18 @@ export const Header: React.FC<HeaderProps> = ({
               >
                 <ShieldCheck className="w-4 h-4 text-emerald-600" />
                 <span>10 Evidence Principles</span>
+              </button>
+            )}
+            {onOpenTechStack && (
+              <button
+                onClick={() => {
+                  onOpenTechStack();
+                  setMobileMenuOpen(false);
+                }}
+                className="w-full text-left px-3 py-2 rounded-lg text-sm font-medium text-slate-700 hover:bg-slate-100 flex items-center gap-2"
+              >
+                <Layers className="w-4 h-4 text-indigo-600" />
+                <span>System Architecture</span>
               </button>
             )}
           </div>
