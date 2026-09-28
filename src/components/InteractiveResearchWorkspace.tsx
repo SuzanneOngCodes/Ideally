@@ -40,7 +40,6 @@ import {
 } from '../types/research';
 import { INITIAL_LLM_LATENCY_CONVERSATION } from '../data/demoCaseScenario';
 import { useLanguage } from '../context/LanguageContext';
-import { TerminologyGlossaryModal } from './TerminologyGlossaryModal';
 
 interface InteractiveResearchWorkspaceProps {
   brief: ResearchBrief;
@@ -51,6 +50,8 @@ interface InteractiveResearchWorkspaceProps {
   onUpdateBriefCards?: (cards: ResearchMapCard[]) => void;
   onOpenSearch?: () => void;
   onOpenPresets?: () => void;
+  onOpenGlossary?: (term?: string) => void;
+  onOpenPrinciples?: () => void;
 }
 
 export const InteractiveResearchWorkspace: React.FC<InteractiveResearchWorkspaceProps> = ({
@@ -62,6 +63,8 @@ export const InteractiveResearchWorkspace: React.FC<InteractiveResearchWorkspace
   onUpdateBriefCards,
   onOpenSearch,
   onOpenPresets,
+  onOpenGlossary,
+  onOpenPrinciples,
 }) => {
   const { currentLanguage, activeLanguageInfo, t, translateBriefContent, isTranslating } = useLanguage();
 
@@ -172,13 +175,11 @@ Select any card on the right to inspect sources, examine limitations, or trigger
   const [isSending, setIsSending] = useState(false);
   const [isSearchingEvidence, setIsSearchingEvidence] = useState(false);
   const [expandedSourceId, setExpandedSourceId] = useState<string | null>(null);
-  const [showPrinciplesModal, setShowPrinciplesModal] = useState(false);
-  const [showGlossaryModal, setShowGlossaryModal] = useState(false);
-  const [glossaryTerm, setGlossaryTerm] = useState('');
 
   const handleOpenGlossary = (term?: string) => {
-    setGlossaryTerm(term || '');
-    setShowGlossaryModal(true);
+    if (onOpenGlossary) {
+      onOpenGlossary(term);
+    }
   };
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -471,34 +472,14 @@ Select any card on the right to inspect sources, examine limitations, or trigger
             </button>
           </div>
 
-          {/* Research Terminology Glossary Button */}
-          <button
-            onClick={() => handleOpenGlossary()}
-            className="px-2.5 py-1 rounded-lg border border-slate-200 hover:border-slate-300 bg-white hover:bg-slate-50 text-slate-700 text-xs font-medium transition-colors flex items-center gap-1 shadow-2xs"
-            title="Open plain English & academic definitions for research terms"
-          >
-            <BookOpen className="w-3 h-3 text-indigo-600" />
-            <span className="hidden sm:inline">Glossary</span>
-          </button>
-
-          {/* 10 Evidence Principles Guide Button */}
-          <button
-            onClick={() => setShowPrinciplesModal(true)}
-            className="px-2.5 py-1 rounded-lg border border-slate-200 hover:border-slate-300 bg-white hover:bg-slate-50 text-slate-700 text-xs font-medium transition-colors flex items-center gap-1 shadow-2xs"
-            title="Review the 10 Scientific Evidence Principles"
-          >
-            <ShieldCheck className="w-3 h-3 text-emerald-600" />
-            <span className="hidden sm:inline">10 Principles</span>
-          </button>
-
           {/* Revise or Abandon Direction Button */}
           <button
             onClick={onReviseDirection}
-            className="px-2.5 py-1 rounded-lg border border-amber-200 hover:border-amber-300 bg-amber-50/80 hover:bg-amber-100 text-amber-900 text-xs font-medium transition-colors flex items-center gap-1"
+            className="px-2.5 py-1 rounded-lg border border-amber-200 hover:border-amber-300 bg-amber-50/80 hover:bg-amber-100 text-amber-900 text-xs font-medium transition-colors flex items-center gap-1 shadow-2xs"
             title="Explore alternative directions to revise or pivot"
           >
             <RotateCcw className="w-3 h-3 text-amber-700" />
-            <span className="hidden md:inline">Revise</span>
+            <span className="hidden md:inline">Revise Direction</span>
           </button>
         </div>
       </div>
@@ -1064,97 +1045,6 @@ Select any card on the right to inspect sources, examine limitations, or trigger
           </div>
         </section>
       </div>
-
-      {/* 10 Evidence Principles Modal (Section 4) */}
-      {showPrinciplesModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs animate-in fade-in">
-          <div className="bg-white rounded-2xl border border-slate-200 shadow-2xl max-w-2xl w-full max-h-[90vh] overflow-y-auto">
-            <div className="p-6 border-b border-slate-100 flex items-start justify-between bg-slate-50/50">
-              <div>
-                <span className="text-xs font-bold uppercase tracking-wider text-slate-500">
-                  Section 4 · Ideally Constitution
-                </span>
-                <h3 className="text-xl font-bold text-slate-900 font-serif-scholarly mt-0.5">
-                  The 10 Evidence Principles
-                </h3>
-                <p className="text-xs text-slate-600 mt-1">
-                  AI must verify the problem before recommending a specific research direction.
-                </p>
-              </div>
-              <button
-                onClick={() => setShowPrinciplesModal(false)}
-                className="p-1.5 text-slate-400 hover:text-slate-700 rounded-lg"
-              >
-                <X className="w-5 h-5" />
-              </button>
-            </div>
-
-            <div className="p-6 space-y-3.5 text-xs text-slate-700 leading-relaxed font-sans">
-              <div className="p-3 rounded-lg bg-slate-50 border border-slate-100 flex items-start gap-2.5">
-                <span className="font-bold text-slate-900 font-mono-tabular shrink-0">01.</span>
-                <p><span className="font-semibold text-slate-900">Observation as Inquiry:</span> Treat the user's observation as something to investigate, not as an established fact.</p>
-              </div>
-
-              <div className="p-3 rounded-lg bg-slate-50 border border-slate-100 flex items-start gap-2.5">
-                <span className="font-bold text-slate-900 font-mono-tabular shrink-0">02.</span>
-                <p><span className="font-semibold text-slate-900">Primary Sources:</span> Search scientific papers, technical reports, public datasets, and trustworthy news. Prefer primary sources over commentary.</p>
-              </div>
-
-              <div className="p-3 rounded-lg bg-slate-50 border border-slate-100 flex items-start gap-2.5">
-                <span className="font-bold text-slate-900 font-mono-tabular shrink-0">03.</span>
-                <p><span className="font-semibold text-slate-900">Community Signals ≠ Proof:</span> Community reports, GitHub issues, and discussions signal a problem, but do not by themselves prove its statistical prevalence.</p>
-              </div>
-
-              <div className="p-3 rounded-lg bg-slate-50 border border-slate-100 flex items-start gap-2.5">
-                <span className="font-bold text-slate-900 font-mono-tabular shrink-0">04.</span>
-                <p><span className="font-semibold text-slate-900">Empirical Traceability:</span> Every empirical claim must be traceable to supporting source content, including its date, context, scope, and limitations.</p>
-              </div>
-
-              <div className="p-3 rounded-lg bg-slate-50 border border-slate-100 flex items-start gap-2.5">
-                <span className="font-bold text-slate-900 font-mono-tabular shrink-0">05.</span>
-                <p><span className="font-semibold text-slate-900">Epistemic Categorization:</span> Distinguish evidence that a problem exists, evidence of prevalence, evidence of causes, and evidence that a solution works.</p>
-              </div>
-
-              <div className="p-3 rounded-lg bg-slate-50 border border-slate-100 flex items-start gap-2.5">
-                <span className="font-bold text-slate-900 font-mono-tabular shrink-0">06.</span>
-                <p><span className="font-semibold text-slate-900">Contradictory Findings:</span> Look for both supporting and contradictory findings. Do not search only for evidence that confirms the user's idea.</p>
-              </div>
-
-              <div className="p-3 rounded-lg bg-slate-50 border border-slate-100 flex items-start gap-2.5">
-                <span className="font-bold text-slate-900 font-mono-tabular shrink-0">07.</span>
-                <p><span className="font-semibold text-slate-900">Clear Epistemic Separation:</span> Clearly separate source-supported information, AI inference, and proposed hypotheses.</p>
-              </div>
-
-              <div className="p-3 rounded-lg bg-slate-50 border border-slate-100 flex items-start gap-2.5">
-                <span className="font-bold text-slate-900 font-mono-tabular shrink-0">08.</span>
-                <p><span className="font-semibold text-slate-900">Uncertainty & Lack of Literature:</span> A lack of literature does not prove a problem does not exist or that an idea is novel. Keep claims uncertain and suggest narrowing scope or gathering data.</p>
-              </div>
-
-              <div className="p-3 rounded-lg bg-slate-50 border border-slate-100 flex items-start gap-2.5">
-                <span className="font-bold text-slate-900 font-mono-tabular shrink-0">09.</span>
-                <p><span className="font-semibold text-slate-900">Zero Fabrication & Scope Disclosures:</span> Never fabricate sources, statistics, or experimental results. If only an abstract was reviewed, state that explicitly.</p>
-              </div>
-
-              <div className="p-3 rounded-lg bg-slate-50 border border-slate-100 flex items-start gap-2.5">
-                <span className="font-bold text-slate-900 font-mono-tabular shrink-0">10.</span>
-                <p><span className="font-semibold text-slate-900">Illustrations ≠ Evidence:</span> Illustrations are not evidence. Simulated models and expected outcomes must be labelled as hypotheses, not achieved results.</p>
-              </div>
-
-              <div className="p-4 rounded-xl bg-slate-900 text-white text-xs mt-4">
-                <span className="font-semibold block mb-1">Defensibility Core Mandate:</span>
-                "Defending the reason for choosing a direction includes the ability to revise or abandon that direction when evidence does not support it."
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Interactive Research Terminology Glossary Modal */}
-      <TerminologyGlossaryModal
-        isOpen={showGlossaryModal}
-        onClose={() => setShowGlossaryModal(false)}
-        initialSearch={glossaryTerm}
-      />
     </div>
   );
 };

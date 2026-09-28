@@ -27,15 +27,12 @@ export const LanguageSelector: React.FC = () => {
     <div className="relative inline-block text-left" ref={dropdownRef}>
       <button
         onClick={() => setIsOpen(!isOpen)}
-        className="px-2.5 py-1.5 text-xs font-medium text-slate-700 bg-white hover:bg-slate-50 border border-slate-200 hover:border-slate-300 rounded-lg transition-all flex items-center gap-1.5 shadow-2xs group"
-        title="Select language (Japan & APAC Region) via Google Cloud Translation"
+        className="px-2.5 py-1.5 text-xs font-medium text-slate-700 bg-white hover:bg-slate-50 border border-slate-200 hover:border-slate-300 rounded-lg transition-all flex items-center gap-1.5 shadow-2xs group focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-900"
+        title="Select language (Japan & APAC Region)"
         aria-expanded={isOpen}
       >
         <span className="text-sm leading-none">{activeLanguageInfo.flag}</span>
-        <span className="font-semibold text-slate-800 hidden xs:inline">{activeLanguageInfo.nativeName}</span>
-        <span className="text-[10px] uppercase font-bold tracking-wider px-1.5 py-0.5 rounded bg-amber-50 text-amber-800 border border-amber-200/60 hidden sm:inline">
-          APAC
-        </span>
+        <span className="font-medium text-slate-700 hidden sm:inline">{activeLanguageInfo.nativeName}</span>
         <ChevronDown className={`w-3 h-3 text-slate-400 group-hover:text-slate-600 transition-transform duration-200 ${isOpen ? 'rotate-180' : ''}`} />
       </button>
 

@@ -18,6 +18,8 @@ import { EvidenceAuditView } from './components/EvidenceAuditView';
 import { PresetSelectorModal } from './components/PresetSelectorModal';
 import { InteractiveResearchWorkspace } from './components/InteractiveResearchWorkspace';
 import { AcademicSearchModal } from './components/AcademicSearchModal';
+import { TerminologyGlossaryModal } from './components/TerminologyGlossaryModal';
+import { EvidencePrinciplesModal } from './components/EvidencePrinciplesModal';
 import { PRESET_SCENARIOS, PresetScenario } from './data/presetScenarios';
 import { ResearchBrief, UserIntake, SocraticDefenseProbe, EvidenceAuditReport, AudienceMode, ResearchMapCard, StructuredEvidenceSource } from './types/research';
 import { generateMarkdownBrief, downloadMarkdownFile } from './utils/exportBrief';
@@ -32,8 +34,16 @@ export default function App() {
   const [isPresetsOpen, setIsPresetsOpen] = useState(false);
   const [isMethodologyOpen, setIsMethodologyOpen] = useState(false);
   const [isSearchOpen, setIsSearchOpen] = useState(false);
+  const [isGlossaryOpen, setIsGlossaryOpen] = useState(false);
+  const [glossaryTerm, setGlossaryTerm] = useState('');
+  const [isPrinciplesOpen, setIsPrinciplesOpen] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [statusMessage, setStatusMessage] = useState<string | null>(null);
+
+  const handleOpenGlossary = (term?: string) => {
+    setGlossaryTerm(term || '');
+    setIsGlossaryOpen(true);
+  };
 
   const showStatus = (msg: string) => {
     setStatusMessage(msg);
@@ -235,6 +245,8 @@ export default function App() {
         hasActiveBrief={!!currentBrief}
         onOpenMethodology={() => setIsMethodologyOpen(true)}
         onOpenSearch={() => setIsSearchOpen(true)}
+        onOpenGlossary={handleOpenGlossary}
+        onOpenPrinciples={() => setIsPrinciplesOpen(true)}
       />
 
       {/* Guided Research Journey Ribbon — only shown when navigating the 5 linear brief stages */}
@@ -268,6 +280,8 @@ export default function App() {
             onUpdateBriefCards={handleUpdateBriefCards}
             onOpenSearch={() => setIsSearchOpen(true)}
             onOpenPresets={() => setIsPresetsOpen(true)}
+            onOpenGlossary={handleOpenGlossary}
+            onOpenPrinciples={() => setIsPrinciplesOpen(true)}
           />
         )}
 
@@ -400,6 +414,19 @@ export default function App() {
         onClose={() => setIsSearchOpen(false)}
         initialQuery={currentBrief?.experimentDesign?.primaryResearchQuestion || currentBrief?.problemValidation?.coreProblemStatement || currentBrief?.intake?.problemOrObservation || 'transformer classification latency'}
         onAddSourceToBrief={handleAddSourceToBrief}
+      />
+
+      {/* Research Terminology Glossary Modal */}
+      <TerminologyGlossaryModal
+        isOpen={isGlossaryOpen}
+        onClose={() => setIsGlossaryOpen(false)}
+        initialSearch={glossaryTerm}
+      />
+
+      {/* The 10 Evidence Principles Modal */}
+      <EvidencePrinciplesModal
+        isOpen={isPrinciplesOpen}
+        onClose={() => setIsPrinciplesOpen(false)}
       />
     </div>
   );
