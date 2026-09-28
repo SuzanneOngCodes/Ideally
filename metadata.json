@@ -1,0 +1,6 @@
+{
+  "name": "Ideally - AI Research Advisor",
+  "description": "Evidence-backed research advisor that helps researchers and capstone students validate real-world problems, navigate literature gaps, compare research directions, and design empirical experiments.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
