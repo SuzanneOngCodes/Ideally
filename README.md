@@ -7,7 +7,7 @@
 
 ## 📖 Overview
 
-Many research projects suffer from *"solutions in search of a problem"*, ungrounded empirical claims, or brittle methodology that collapses under peer review. **Ideally** acts as a senior academic co-advisor and adversarial reviewer committee. It guides researchers through a systematic, 5-stage discovery process and stress-tests their proposals against harsh academic scrutiny before they commit months to implementation.
+Many research projects suffer from _"solutions in search of a problem"_, ungrounded empirical claims, or brittle methodology that collapses under peer review. **Ideally** acts as a senior academic co-advisor and adversarial reviewer committee. It guides researchers through a systematic, 5-stage discovery process and stress-tests their proposals against harsh academic scrutiny before they commit months to implementation.
 
 Built on Google's **Gemini 3.8 Flash** model and grounded with real-time academic paper indexes (arXiv, Semantic Scholar), Ideally enforces strict scientific epistemics: separating established facts from AI inferences and testable hypotheses.
 
@@ -16,16 +16,16 @@ Built on Google's **Gemini 3.8 Flash** model and grounded with real-time academi
 ## ✨ Key Features
 
 - **🧭 Interactive Research Workspace**: Split-screen canvas featuring a live Socratic dialogue on the left and an editable 5-card reasoning chain on the right:
-  1. *Core Problem Statement & Severity*
-  2. *Evidence Base & Literature Precedents*
-  3. *Core Hypothesis & Proposed Mechanism*
-  4. *Pareto Trade-offs & Baseline Comparisons*
-  5. *Falsification Criteria & Experimental Protocol*
-- **🛡️ Socratic Defense Lab (Reviewer #2 Simulation)**: Adversarial peer-review simulation with configurable reviewer personas (*Methodology Purist*, *Novelty Skeptic*, *Industry Pragmatist*). Probes vulnerabilities, demands boundary conditions, and scores researcher defenses on defensibility rubrics.
+  1. _Core Problem Statement & Severity_
+  2. _Evidence Base & Literature Precedents_
+  3. _Core Hypothesis & Proposed Mechanism_
+  4. _Pareto Trade-offs & Baseline Comparisons_
+  5. _Falsification Criteria & Experimental Protocol_
+- **🛡️ Socratic Defense Lab (Reviewer #2 Simulation)**: Adversarial peer-review simulation with configurable reviewer personas (_Methodology Purist_, _Novelty Skeptic_, _Industry Pragmatist_). Probes vulnerabilities, demands boundary conditions, and scores researcher defenses on defensibility rubrics.
 - **🔍 Evidence Auditor & Epistemic Classifier**: Automated citation and claim auditor that verifies claims against primary literature, flagging ungrounded assertions, community signals mistaken for statistical proof, and confirmation bias.
 - **📚 Academic Literature Search**: Built-in discovery engine querying arXiv and Semantic Scholar APIs with automated BibTeX citation generation.
 - **🌱 Dual Audience Depth Modes**: Instant toggling between **Beginner / Capstone** (plain-English intuition, scaffolded explanations, terminology glossary) and **Experienced / Academic** (formal epistemic notation, p-value thresholds, Pareto trade-off frontiers).
-- **🌏 Multilingual & APAC Localization**: Full real-time translation for Japanese (日本語), Traditional Chinese (繁體中文), Simplified Chinese (简体中文), Korean (한국어), Hindi (हिन्दी), and English.
+- **🌏 Multilingual & APAC Localization**: Full real-time translation for Vietnamese (Tiếng Việt), Japanese (日本語), Traditional Chinese (繁體中文), Simplified Chinese (简体中文), Korean (한국어), English, and more.
 - **📄 Complete Export Options**: One-click download of the complete structured research brief in clean GitHub-flavored Markdown with complete BibTeX citations.
 
 ---
@@ -69,11 +69,13 @@ Before running the application, ensure you have the following installed:
 ## ⚙️ Environment Configuration
 
 1. Copy the example environment file:
+
    ```bash
    cp .env.example .env
    ```
 
 2. Open `.env` and configure your API keys:
+
    ```env
    # Required: Gemini API Key for research synthesis and defense simulations
    GEMINI_API_KEY="your_actual_gemini_api_key_here"
@@ -104,13 +106,14 @@ In development mode, `tsx` runs `server.ts` with Vite's development middleware m
 
 ```bash
 # 1. Install all dependencies
-npm install
+npm install --legacy-peer-deps
 
 # 2. Start the unified development server
 npm run dev
 ```
 
 Once started, open your browser and navigate to:
+
 ```
 http://localhost:3000
 ```
@@ -133,11 +136,13 @@ NODE_ENV=production npm start
 ```
 
 Or run via `node`:
+
 ```bash
 NODE_ENV=production node server.ts
 ```
 
 The production application will be listening on:
+
 ```
 http://0.0.0.0:3000
 ```
@@ -146,14 +151,14 @@ http://0.0.0.0:3000
 
 ## 🛠️ Available Scripts
 
-| Command | Description |
-| :--- | :--- |
-| `npm run dev` | Launches the Express server and Vite in development mode on port 3000 |
-| `npm run build` | Compiles the React SPA using Vite into the `dist/` directory |
-| `npm start` | Launches the production Node server (`node server.ts`) |
-| `npm run lint` | Runs TypeScript static type checking (`tsc --noEmit`) |
+| Command           | Description                                                           |
+| :---------------- | :-------------------------------------------------------------------- |
+| `npm run dev`     | Launches the Express server and Vite in development mode on port 3000 |
+| `npm run build`   | Compiles the React SPA using Vite into the `dist/` directory          |
+| `npm start`       | Launches the production Node server (`node server.ts`)                |
+| `npm run lint`    | Runs TypeScript static type checking (`tsc --noEmit`)                 |
 | `npm run preview` | Previews the built `dist/` bundle locally using Vite's preview server |
-| `npm run clean` | Deletes the `dist/` build output folder |
+| `npm run clean`   | Deletes the `dist/` build output folder                               |
 
 ---
 
