@@ -52,6 +52,7 @@ interface InteractiveResearchWorkspaceProps {
   onOpenPresets?: () => void;
   onOpenGlossary?: (term?: string) => void;
   onOpenPrinciples?: () => void;
+  initialAdvisorQuery?: string;
 }
 
 export const InteractiveResearchWorkspace: React.FC<InteractiveResearchWorkspaceProps> = ({
@@ -65,6 +66,7 @@ export const InteractiveResearchWorkspace: React.FC<InteractiveResearchWorkspace
   onOpenPresets,
   onOpenGlossary,
   onOpenPrinciples,
+  initialAdvisorQuery = '',
 }) => {
   const { currentLanguage, activeLanguageInfo, t, translateBriefContent, isTranslating } = useLanguage();
 
@@ -171,7 +173,7 @@ Select any card on the right to inspect sources, examine limitations, or trigger
           },
         ]
   );
-  const [inputText, setInputText] = useState('');
+  const [inputText, setInputText] = useState(initialAdvisorQuery || '');
   const [isSending, setIsSending] = useState(false);
   const [isSearchingEvidence, setIsSearchingEvidence] = useState(false);
   const [expandedSourceId, setExpandedSourceId] = useState<string | null>(null);

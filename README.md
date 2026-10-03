@@ -15,6 +15,7 @@ Built on Google's **Gemini 3.8 Flash** model and grounded with real-time academi
 
 ## ✨ Key Features
 
+- **🔎 Smart Search & Intent Routing Landing Page**: A clean, unified search bar that analyzes the researcher's query or draft excerpt to automatically direct them to the appropriate lab (**Interactive Workspace**, **Structured Proposal Brief**, **Socratic Defense Lab**, or **Evidence & Citation Auditor**).
 - **🧭 Interactive Research Workspace**: Split-screen canvas featuring a live Socratic dialogue on the left and an editable 5-card reasoning chain on the right:
   1. _Core Problem Statement & Severity_
   2. _Evidence Base & Literature Precedents_

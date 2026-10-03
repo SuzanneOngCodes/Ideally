@@ -565,6 +565,15 @@ export const PRESET_SCENARIOS: PresetScenario[] = [
           'Only the outer matrix dimension k changes (k=2 for 512, k=3 for 768, k=4 for 1024), multiplying memory requirements linearly.',
         ],
       },
+      {
+        id: 'probe-pq-3',
+        persona: 'Patent Examiner (USPTO / EPO Intellectual Property)',
+        probingTopic: 'Non-Obviousness (35 U.S.C. § 103) & Prior Art Combination',
+        question: 'Claim 1 combines inplace NTT butterfly indexing with Montgomery modular reduction. Both mechanisms exist separately in prior art (US Pat. 8,429,207 and IEEE Micro 2021). Why would a Person Having Ordinary Skill in the Art (PHOSITA) not find this combination obvious to try for embedded post-quantum microcontrollers?',
+        exampleAnswers: [
+          'Prior art teaches away from inplace scheduling on 16-bit register halves due to register pressure causing catastrophic spilling. Our invention achieves an unexpected synergy: by interleaving the modular reduction stages directly within the pipeline stalls of the load-multiple instructions, we eliminate both the memory buffer and the cycle penalty simultaneously without increasing side-channel leakage.',
+        ],
+      },
     ],
   },
   {

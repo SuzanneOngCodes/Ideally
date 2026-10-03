@@ -597,17 +597,21 @@ Analyze the defense response. Return JSON with:
 
 	// Generate 3 novel defense probes for the brief
 	try {
+		const isPatentTopic = /patent|prior art|claim|inventive|intellectual property|35 u\.?s\.?c/i.test(
+			`${brief.title} ${brief.intake?.problemOrObservation || ""} ${brief.experimentDesign?.falsifiableHypothesis || ""}`
+		);
+
 		const probeGenPrompt = `
-You are an Academic Defense Advisory Committee grilling a researcher on their research brief:
+You are an Academic & Patent Defense Advisory Committee grilling a researcher/inventor on their proposal:
 Title: "${brief.title}"
 Selected Direction: "${brief.candidateDirections?.find((d: any) => d.id === brief.selectedDirectionId)?.title || "Primary Direction"}"
-Falsifiable Hypothesis: "${brief.experimentDesign?.falsifiableHypothesis}"
+Falsifiable Hypothesis / Claim: "${brief.experimentDesign?.falsifiableHypothesis}"
 Primary Research Question: "${brief.experimentDesign?.primaryResearchQuestion}"
 
-Generate 3 tough, intellectually rigorous defense probes representing distinct committee perspectives:
+Generate 3 tough, intellectually rigorous defense probes representing distinct adversarial perspectives:
 1. Methodology Committee Chair (probing causal validity, confounding factors, or sample bias)
-2. Reviewer #2 Empirical Skeptic (challenging baselines, negative result significance, or edge cases)
-3. Domain Practitioner (challenging real-world adoption, latency/cost constraints, or operational friction)
+2. ${isPatentTopic ? "Patent Examiner (USPTO/EPO probing 35 U.S.C. § 102 Novelty & § 103 Non-Obviousness over prior art combinations)" : "Reviewer #2 Empirical Skeptic (challenging baselines, negative result significance, or edge cases)"}
+3. Domain / Industry Practitioner (challenging real-world adoption, latency/cost constraints, or operational friction)
 
 Return JSON format:
 {

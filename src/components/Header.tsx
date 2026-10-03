@@ -11,12 +11,14 @@ import {
   ChevronDown,
   Plus,
   FolderOpen,
-  Layers
+  Layers,
+  Compass,
+  FileText
 } from 'lucide-react';
 import { LanguageSelector } from './LanguageSelector';
 import { useLanguage } from '../context/LanguageContext';
 
-export type NavTab = 'intake' | 'workspace' | 'problem' | 'knowledge' | 'tradeoffs' | 'experiment' | 'brief' | 'defense' | 'auditor';
+export type NavTab = 'home' | 'intake' | 'workspace' | 'problem' | 'knowledge' | 'tradeoffs' | 'experiment' | 'brief' | 'defense' | 'auditor';
 
 interface HeaderProps {
   activeTab: NavTab;
@@ -74,8 +76,8 @@ export const Header: React.FC<HeaderProps> = ({
         {/* Zone 1: Wordmark Brand Title */}
         <div className="flex items-center gap-3 shrink-0">
           <button
-            onClick={() => onSelectTab(hasActiveBrief ? 'workspace' : 'intake')}
-            className="text-lg font-bold tracking-tight text-slate-900 font-serif-scholarly hover:opacity-80 transition-opacity flex items-center gap-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-900 rounded-md"
+            onClick={() => onSelectTab('home')}
+            className="text-lg font-bold tracking-tight text-slate-900 font-serif-scholarly hover:opacity-80 transition-opacity flex items-center gap-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-900 rounded-md cursor-pointer"
             aria-label="Ideally Home"
           >
             <span>Ideally</span>
@@ -92,8 +94,21 @@ export const Header: React.FC<HeaderProps> = ({
             aria-label="Main Navigation"
           >
             <button
+              onClick={() => onSelectTab('home')}
+              className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-all flex items-center gap-1.5 cursor-pointer ${
+                activeTab === 'home'
+                  ? 'bg-white text-slate-900 shadow-2xs font-semibold'
+                  : 'text-slate-600 hover:text-slate-900 hover:bg-white/50'
+              }`}
+              aria-current={activeTab === 'home' ? 'page' : undefined}
+            >
+              <Search className="w-3.5 h-3.5" />
+              <span>Search</span>
+            </button>
+
+            <button
               onClick={() => onSelectTab('workspace')}
-              className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-all ${
+              className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-all cursor-pointer ${
                 activeTab === 'workspace'
                   ? 'bg-white text-slate-900 shadow-2xs font-semibold'
                   : 'text-slate-600 hover:text-slate-900 hover:bg-white/50'
@@ -147,24 +162,11 @@ export const Header: React.FC<HeaderProps> = ({
 
         {/* Zone 3: Clean, Uncluttered Utility Actions */}
         <div className="flex items-center gap-2">
-          {/* Literature Search Trigger */}
-          {onOpenSearch && (
-            <button
-              onClick={onOpenSearch}
-              className="p-1.5 sm:px-2.5 sm:py-1.5 text-xs font-medium text-slate-600 hover:text-slate-900 bg-slate-100 hover:bg-slate-200/80 rounded-lg transition-colors flex items-center gap-1.5 border border-slate-200/60"
-              title="Search academic literature (arXiv, Semantic Scholar)"
-              aria-label="Search literature"
-            >
-              <Search className="w-3.5 h-3.5 text-slate-500" />
-              <span className="hidden lg:inline">Search Lit</span>
-            </button>
-          )}
-
           {/* Consolidated Resources Dropdown */}
           <div className="relative inline-block text-left" ref={resourcesRef}>
             <button
               onClick={() => setResourcesOpen(!resourcesOpen)}
-              className={`px-2.5 py-1.5 text-xs font-medium rounded-lg transition-colors flex items-center gap-1 border ${
+              className={`px-2.5 py-1.5 text-xs font-medium rounded-lg transition-colors flex items-center gap-1 border cursor-pointer ${
                 resourcesOpen 
                   ? 'bg-slate-100 text-slate-900 border-slate-300' 
                   : 'bg-white text-slate-700 hover:bg-slate-50 border-slate-200 hover:border-slate-300 shadow-2xs'
@@ -184,9 +186,22 @@ export const Header: React.FC<HeaderProps> = ({
                   Knowledge & Guides
                 </div>
 
+                {onOpenSearch && (
+                  <button
+                    onClick={() => { onOpenSearch(); setResourcesOpen(false); }}
+                    className="w-full text-left px-3.5 py-2 text-xs font-medium text-slate-700 hover:bg-slate-50 flex items-center gap-2.5 transition-colors border-b border-slate-100 cursor-pointer"
+                  >
+                    <Search className="w-4 h-4 text-indigo-600 shrink-0" />
+                    <div>
+                      <div className="font-semibold text-slate-800">Academic Paper Index</div>
+                      <div className="text-[11px] text-slate-400">Search arXiv & Semantic Scholar</div>
+                    </div>
+                  </button>
+                )}
+
                 <button
                   onClick={() => { onOpenPresets(); setResourcesOpen(false); }}
-                  className="w-full text-left px-3.5 py-2 text-xs font-medium text-slate-700 hover:bg-slate-50 flex items-center gap-2.5 transition-colors"
+                  className="w-full text-left px-3.5 py-2 text-xs font-medium text-slate-700 hover:bg-slate-50 flex items-center gap-2.5 transition-colors cursor-pointer"
                 >
                   <FolderOpen className="w-4 h-4 text-amber-600 shrink-0" />
                   <div>
@@ -285,75 +300,90 @@ export const Header: React.FC<HeaderProps> = ({
           {/* Mobile Drawer Toggle */}
           <button
             onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
-            className="p-1.5 text-slate-600 hover:text-slate-900 hover:bg-slate-100 rounded-lg md:hidden transition-colors"
+            className="min-h-[44px] min-w-[44px] flex items-center justify-center text-slate-700 hover:text-slate-900 hover:bg-slate-100 rounded-xl md:hidden transition-colors cursor-pointer"
             aria-label="Toggle navigation menu"
             aria-expanded={mobileMenuOpen}
           >
-            {mobileMenuOpen ? <X className="w-5 h-5" /> : <Menu className="w-5 h-5" />}
+            {mobileMenuOpen ? <X className="w-6 h-6" /> : <Menu className="w-6 h-6" />}
           </button>
         </div>
       </div>
 
       {/* Mobile Drawer Navigation */}
       {mobileMenuOpen && (
-        <div className="md:hidden border-t border-slate-200 bg-white px-4 py-4 space-y-3 animate-in slide-in-from-top-2 duration-150">
+        <div className="md:hidden border-t border-slate-200 bg-white px-4 py-5 space-y-4 animate-in slide-in-from-top-2 duration-150 shadow-xl">
           {hasActiveBrief ? (
-            <div className="space-y-1">
-              <div className="text-xs font-semibold uppercase tracking-wider text-slate-400 px-3 py-1">
-                Main Workspace
+            <div className="space-y-1.5">
+              <div className="text-xs font-bold uppercase tracking-wider text-slate-400 px-3 py-1">
+                Main Research Laboratories
               </div>
               <button
-                onClick={() => handleSelectMobileTab('workspace')}
-                className={`w-full text-left px-3 py-2 rounded-lg text-sm font-medium transition-colors ${
-                  activeTab === 'workspace'
-                    ? 'bg-slate-900 text-white font-semibold'
+                onClick={() => handleSelectMobileTab('home')}
+                className={`w-full text-left px-4 py-3 rounded-xl text-sm font-semibold transition-colors flex items-center gap-3 min-h-[46px] cursor-pointer ${
+                  activeTab === 'home'
+                    ? 'bg-slate-900 text-white'
                     : 'text-slate-700 hover:bg-slate-100'
                 }`}
               >
-                Advisor Workspace
+                <Search className="w-4 h-4 shrink-0" />
+                <span>Search & Intent Dispatch</span>
+              </button>
+              <button
+                onClick={() => handleSelectMobileTab('workspace')}
+                className={`w-full text-left px-4 py-3 rounded-xl text-sm font-semibold transition-colors flex items-center gap-3 min-h-[46px] cursor-pointer ${
+                  activeTab === 'workspace'
+                    ? 'bg-slate-900 text-white'
+                    : 'text-slate-700 hover:bg-slate-100'
+                }`}
+              >
+                <Compass className="w-4 h-4 shrink-0" />
+                <span>Interactive Workspace</span>
               </button>
               <button
                 onClick={() => handleSelectMobileTab('brief')}
-                className={`w-full text-left px-3 py-2 rounded-lg text-sm font-medium transition-colors ${
+                className={`w-full text-left px-4 py-3 rounded-xl text-sm font-semibold transition-colors flex items-center gap-3 min-h-[46px] cursor-pointer ${
                   isBriefActive
-                    ? 'bg-slate-900 text-white font-semibold'
+                    ? 'bg-slate-900 text-white'
                     : 'text-slate-700 hover:bg-slate-100'
                 }`}
               >
-                Proposal Brief
+                <FileText className="w-4 h-4 shrink-0" />
+                <span>Proposal Brief (5-Stage)</span>
               </button>
               <button
                 onClick={() => handleSelectMobileTab('defense')}
-                className={`w-full text-left px-3 py-2 rounded-lg text-sm font-medium transition-colors ${
+                className={`w-full text-left px-4 py-3 rounded-xl text-sm font-semibold transition-colors flex items-center gap-3 min-h-[46px] cursor-pointer ${
                   activeTab === 'defense'
-                    ? 'bg-slate-900 text-white font-semibold'
+                    ? 'bg-slate-900 text-white'
                     : 'text-slate-700 hover:bg-slate-100'
                 }`}
               >
-                Defense Lab
+                <ShieldCheck className="w-4 h-4 shrink-0" />
+                <span>Defense Lab (Reviewer #2)</span>
               </button>
               <button
                 onClick={() => handleSelectMobileTab('auditor')}
-                className={`w-full text-left px-3 py-2 rounded-lg text-sm font-medium transition-colors ${
+                className={`w-full text-left px-4 py-3 rounded-xl text-sm font-semibold transition-colors flex items-center gap-3 min-h-[46px] cursor-pointer ${
                   activeTab === 'auditor'
-                    ? 'bg-slate-900 text-white font-semibold'
+                    ? 'bg-slate-900 text-white'
                     : 'text-slate-700 hover:bg-slate-100'
                 }`}
               >
-                Evidence Auditor
+                <Search className="w-4 h-4 shrink-0" />
+                <span>Evidence & Citation Auditor</span>
               </button>
             </div>
           ) : (
             <button
               onClick={() => handleSelectMobileTab('intake')}
-              className="w-full text-left px-3 py-2 rounded-lg text-sm font-semibold bg-slate-900 text-white"
+              className="w-full text-left px-4 py-3 rounded-xl text-sm font-semibold bg-slate-900 text-white min-h-[46px]"
             >
               Intake Form
             </button>
           )}
 
-          <div className="pt-2 border-t border-slate-100 space-y-1">
-            <div className="text-xs font-semibold uppercase tracking-wider text-slate-400 px-3 py-1">
+          <div className="pt-3 border-t border-slate-100 space-y-1.5">
+            <div className="text-xs font-bold uppercase tracking-wider text-slate-400 px-3 py-1">
               Resources & Tools
             </div>
             <button
@@ -361,20 +391,20 @@ export const Header: React.FC<HeaderProps> = ({
                 onOpenPresets();
                 setMobileMenuOpen(false);
               }}
-              className="w-full text-left px-3 py-2 rounded-lg text-sm font-medium text-slate-700 hover:bg-slate-100 flex items-center gap-2"
+              className="w-full text-left px-4 py-3 rounded-xl text-sm font-medium text-slate-700 hover:bg-slate-100 flex items-center gap-3 min-h-[44px] cursor-pointer"
             >
-              <FolderOpen className="w-4 h-4 text-amber-600" />
-              <span>Browse Case Studies</span>
+              <FolderOpen className="w-4 h-4 text-amber-600 shrink-0" />
+              <span>Browse 3 Case Studies</span>
             </button>
             <button
               onClick={() => {
                 onOpenMethodology();
                 setMobileMenuOpen(false);
               }}
-              className="w-full text-left px-3 py-2 rounded-lg text-sm font-medium text-slate-700 hover:bg-slate-100 flex items-center gap-2"
+              className="w-full text-left px-4 py-3 rounded-xl text-sm font-medium text-slate-700 hover:bg-slate-100 flex items-center gap-3 min-h-[44px] cursor-pointer"
             >
-              <HelpCircle className="w-4 h-4 text-blue-600" />
-              <span>Methodology Guide</span>
+              <HelpCircle className="w-4 h-4 text-blue-600 shrink-0" />
+              <span>10 Evidence Principles Guide</span>
             </button>
             {onOpenGlossary && (
               <button
@@ -382,9 +412,9 @@ export const Header: React.FC<HeaderProps> = ({
                   onOpenGlossary();
                   setMobileMenuOpen(false);
                 }}
-                className="w-full text-left px-3 py-2 rounded-lg text-sm font-medium text-slate-700 hover:bg-slate-100 flex items-center gap-2"
+                className="w-full text-left px-4 py-3 rounded-xl text-sm font-medium text-slate-700 hover:bg-slate-100 flex items-center gap-3 min-h-[44px] cursor-pointer"
               >
-                <BookOpen className="w-4 h-4 text-indigo-600" />
+                <BookOpen className="w-4 h-4 text-indigo-600 shrink-0" />
                 <span>Research Terminology Glossary</span>
               </button>
             )}

@@ -32,14 +32,16 @@ import {
 interface EvidenceAuditViewProps {
   brief: ResearchBrief;
   onAuditText: (text: string) => Promise<EvidenceAuditReport>;
+  initialCustomText?: string;
 }
 
 export const EvidenceAuditView: React.FC<EvidenceAuditViewProps> = ({
   brief,
   onAuditText,
+  initialCustomText = '',
 }) => {
-  const [activeTab, setActiveTab] = useState<'brief' | 'custom'>('brief');
-  const [customText, setCustomText] = useState<string>('');
+  const [activeTab, setActiveTab] = useState<'brief' | 'custom'>(initialCustomText ? 'custom' : 'brief');
+  const [customText, setCustomText] = useState<string>(initialCustomText);
   const [report, setReport] = useState<EvidenceAuditReport | null>(null);
   const [isLoading, setIsLoading] = useState<boolean>(false);
   const [copiedRewrite, setCopiedRewrite] = useState<boolean>(false);

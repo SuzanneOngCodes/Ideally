@@ -21,6 +21,7 @@ import { AcademicSearchModal } from './components/AcademicSearchModal';
 import { TerminologyGlossaryModal } from './components/TerminologyGlossaryModal';
 import { EvidencePrinciplesModal } from './components/EvidencePrinciplesModal';
 import { TechStackModal } from './components/TechStackModal';
+import { SmartSearchLanding } from './components/SmartSearchLanding';
 import { PRESET_SCENARIOS, PresetScenario } from './data/presetScenarios';
 import { ResearchBrief, UserIntake, SocraticDefenseProbe, EvidenceAuditReport, AudienceMode, ResearchMapCard, StructuredEvidenceSource } from './types/research';
 import { generateMarkdownBrief, downloadMarkdownFile } from './utils/exportBrief';
@@ -30,8 +31,10 @@ export default function App() {
   const [activePreset, setActivePreset] = useState<PresetScenario>(PRESET_SCENARIOS[0]);
   const [currentBrief, setCurrentBrief] = useState<ResearchBrief>(PRESET_SCENARIOS[0].brief);
   const [currentProbes, setCurrentProbes] = useState<SocraticDefenseProbe[]>(PRESET_SCENARIOS[0].defenseProbes);
-  const [activeTab, setActiveTab] = useState<NavTab>('workspace');
+  const [activeTab, setActiveTab] = useState<NavTab>('home');
   const [audienceMode, setAudienceMode] = useState<AudienceMode>('beginner');
+  const [advisorQuery, setAdvisorQuery] = useState<string>('');
+  const [auditCustomText, setAuditCustomText] = useState<string>('');
   const [isPresetsOpen, setIsPresetsOpen] = useState(false);
   const [isMethodologyOpen, setIsMethodologyOpen] = useState(false);
   const [isSearchOpen, setIsSearchOpen] = useState(false);
@@ -66,6 +69,28 @@ export default function App() {
     setCurrentProbes(preset.defenseProbes);
     setActiveTab('workspace');
     showStatus(`Loaded case study: ${preset.name}`);
+  };
+
+  const handleSmartRoute = (destination: 'workspace' | 'brief' | 'defense' | 'auditor', query: string) => {
+    if (destination === 'auditor') {
+      if (query) {
+        setAuditCustomText(query);
+      }
+      setActiveTab('auditor');
+      showStatus('Routed to Evidence & Citation Auditor');
+    } else if (destination === 'defense') {
+      setActiveTab('defense');
+      showStatus('Routed to Socratic Defense Lab (Reviewer #2)');
+    } else if (destination === 'brief') {
+      setActiveTab('brief');
+      showStatus('Routed to Structured Proposal Brief');
+    } else {
+      if (query) {
+        setAdvisorQuery(query);
+      }
+      setActiveTab('workspace');
+      showStatus('Routed to Interactive Research Workspace');
+    }
   };
 
   const handleNewIntake = () => {
@@ -270,6 +295,15 @@ export default function App() {
 
       {/* Main Content Area */}
       <main className="flex-1 pb-16">
+        {activeTab === 'home' && (
+          <SmartSearchLanding
+            onRoute={handleSmartRoute}
+            onSelectPreset={handleSelectPreset}
+            onNewIntake={handleNewIntake}
+            onOpenMethodology={() => setIsMethodologyOpen(true)}
+          />
+        )}
+
         {activeTab === 'workspace' && currentBrief && (
           <InteractiveResearchWorkspace
             brief={currentBrief}
@@ -285,6 +319,7 @@ export default function App() {
             onOpenPresets={() => setIsPresetsOpen(true)}
             onOpenGlossary={handleOpenGlossary}
             onOpenPrinciples={() => setIsPrinciplesOpen(true)}
+            initialAdvisorQuery={advisorQuery}
           />
         )}
 
@@ -359,6 +394,7 @@ export default function App() {
           <EvidenceAuditView
             brief={currentBrief}
             onAuditText={handleAuditText}
+            initialCustomText={auditCustomText}
           />
         )}
       </main>
