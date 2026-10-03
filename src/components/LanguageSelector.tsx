@@ -25,7 +25,7 @@ export const LanguageSelector: React.FC = () => {
 
 	return (
 		<div className='relative inline-block text-left' ref={dropdownRef}>
-			<button onClick={() => setIsOpen(!isOpen)} className='px-2.5 py-1.5 text-xs font-medium text-slate-700 bg-white hover:bg-slate-50 border border-slate-200 hover:border-slate-300 rounded-lg transition-all flex items-center gap-1.5 shadow-2xs group focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-900' title='Select language (Japan & APAC Region)' aria-expanded={isOpen}>
+			<button onClick={() => setIsOpen(!isOpen)} className='px-2.5 py-1.5 text-xs font-medium text-slate-700 bg-white hover:bg-slate-50 border border-slate-200 hover:border-slate-300 rounded-lg transition-all flex items-center gap-1.5 shadow-2xs group focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-900' title='Select language' aria-expanded={isOpen}>
 				<span className='text-sm leading-none'>{activeLanguageInfo.flag}</span>
 				<span className='font-medium text-slate-700 hidden sm:inline'>{activeLanguageInfo.nativeName}</span>
 				<ChevronDown className={`w-3 h-3 text-slate-400 group-hover:text-slate-600 transition-transform duration-200 ${isOpen ? "rotate-180" : ""}`} />
@@ -38,11 +38,11 @@ export const LanguageSelector: React.FC = () => {
 						<div className='flex items-center justify-between'>
 							<div className='flex items-center gap-1.5'>
 								<Languages className='w-4 h-4 text-indigo-600' />
-								<span className='text-xs font-bold text-slate-900'>Japan & APAC Region</span>
+								<span className='text-xs font-bold text-slate-900'>Languages</span>
 							</div>
 							<span className='text-[10px] font-semibold text-indigo-600 bg-indigo-50 px-1.5 py-0.5 rounded'>Cloud Translation</span>
 						</div>
-						<p className='text-[11px] text-slate-500 mt-0.5'>High-fidelity scholarly localization for East & Southeast Asia</p>
+						<p className='text-[11px] text-slate-500 mt-0.5'>High-fidelity scholarly localization for Japan & APAC Regions</p>
 					</div>
 
 					{/* Language Options List */}
