@@ -106,7 +106,7 @@ In development mode, `tsx` runs `server.ts` with Vite's development middleware m
 
 ```bash
 # 1. Install all dependencies
-npm install --legacy-peer-deps
+npm install
 
 # 2. Start the unified development server
 npm run dev
