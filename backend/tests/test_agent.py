@@ -66,8 +66,6 @@ def test_agent_uses_grounded_search_and_filters_unobserved_sources(monkeypatch):
 
 
 def test_chat_uses_llm_fallback_and_preserves_history(monkeypatch):
-    from types import SimpleNamespace
-
     from src.core import agent as module
 
     calls = []
@@ -77,6 +75,10 @@ def test_chat_uses_llm_fallback_and_preserves_history(monkeypatch):
         def __init__(self, **kwargs):
             self.name = kwargs["model"]
 
+        def with_structured_output(self, schema):
+            assert schema is AgentReply
+            return self
+
         async def ainvoke(self, messages):
             calls.append(self.name)
             assert messages[1:] == history
@@ -84,7 +86,7 @@ def test_chat_uses_llm_fallback_and_preserves_history(monkeypatch):
                 error = RuntimeError("unavailable")
                 error.__cause__ = SimpleProviderError()
                 raise error
-            return SimpleNamespace(text="Xin chào!")
+            return AgentReply(answer="Xin chào!")
 
     class SimpleProviderError(Exception):
         code = 404
@@ -146,3 +148,40 @@ def test_chat_can_call_tavily_tool(monkeypatch):
         AgentService(settings).reply([{"role": "user", "content": "Search"}], False)
     )
     assert [str(s.url) for s in result.research.sources] == ["https://docs.tavily.com/"]
+
+
+def test_reasoning_map_sources_and_status_are_validated():
+    from src.core.agent import validate_reasoning_sources
+    from src.modules.research.schemas import ReasoningCard, ReasoningMap
+
+    def card():
+        return ReasoningCard(
+            title="Real topic",
+            summary="User observation",
+            explanation="Proposed reasoning",
+            status="source-supported",
+            sources=[Source(title="Invented", url="https://fake.test/")],
+        )
+
+    result = AgentReply(
+        answer="Answer",
+        research=ResearchResult(
+            title="Topic",
+            summary="Summary",
+            reasoning_map=ReasoningMap(
+                problem=card(),
+                evidence=card(),
+                research_question=card(),
+                hypothesis=card(),
+                experiment=card(),
+            ),
+        ),
+    )
+    result = validate_reasoning_sources(result, {})
+    reasoning = result.research.reasoning_map
+    assert reasoning.evidence.status == "insufficient-evidence"
+    assert reasoning.problem.status == "insufficient-evidence"
+    assert reasoning.hypothesis.status == "hypothesis"
+    assert reasoning.experiment.status == "AI-inferred"
+    assert reasoning.research_question.status == "AI-inferred"
+    assert all(not card.sources for card in vars(reasoning).values())

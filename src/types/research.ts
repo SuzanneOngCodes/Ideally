@@ -132,13 +132,15 @@ export type EvidenceCategory =
 
 export type EvidenceStance = 
   | 'supporting' 
-  | 'contradictory';
+  | 'contradictory'
+  | 'unclassified';
 
 export type EvidenceReviewScope = 
   | 'full_paper' 
   | 'abstract_only' 
   | 'dataset_telemetry' 
-  | 'technical_report';
+  | 'technical_report'
+  | 'search_snippet';
 
 export interface StructuredEvidenceSource {
   id: string;

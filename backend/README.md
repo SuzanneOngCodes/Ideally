@@ -175,3 +175,16 @@ Agent có thể gọi tool từ chat thông thường để tổng hợp kiến 
 Không có key Tavily, research dùng Google Search grounding như trước.
 Search dùng basic depth, timeout 20 giây, theo API chính thức:
 https://docs.tavily.com/documentation/api-reference/endpoint/search
+
+## Live Research Reasoning Map
+
+`research.reasoning_map` trả năm cards `problem`, `evidence`, `research_question`,
+`hypothesis`, `experiment`, được tạo từ hội thoại và kết quả tìm kiếm thật.
+Mỗi card có title, summary, explanation, methodology, status, limitations,
+unresolved_questions và sources. Backend loại source URL không xuất hiện trong
+search và không gắn source-supported nếu thiếu nguồn. Hypothesis luôn là hypothesis;
+question và experiment là AI-inferred. Sources chứa excerpt thực từ kết quả tìm kiếm.
+Map lưu trong JSON research của session hiện có, không cần thay đổi schema database.
+Chat follow-up không có map mới giữ map trước đó. Hội thoại cũ có thể dùng
+Build Research Map để tạo map từ lịch sử hiện tại. Frontend không dùng preset map
+hay biểu đồ số liệu mẫu trong Workspace.

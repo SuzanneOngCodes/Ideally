@@ -38,7 +38,7 @@ import {
   ConversationMessage, 
   AudienceMode 
 } from '../types/research';
-import { INITIAL_LLM_LATENCY_CONVERSATION } from '../data/demoCaseScenario';
+import { liveReasoningCards, type LiveReasoningMap } from '../utils/liveReasoningMap';
 import { useLanguage } from '../context/LanguageContext';
 
 interface InteractiveResearchWorkspaceProps {
@@ -72,117 +72,68 @@ export const InteractiveResearchWorkspace: React.FC<InteractiveResearchWorkspace
   chatSessionId,
   onChatSessionChange,
 }) => {
-  const { currentLanguage, activeLanguageInfo, t, translateBriefContent, isTranslating } = useLanguage();
+  const { currentLanguage, activeLanguageInfo, t } = useLanguage();
 
-  // Cards in the reasoning chain: Problem -> Evidence -> Research Question -> Hypothesis -> Experiment
-  const cards: ResearchMapCard[] = brief.researchMapCards && brief.researchMapCards.length > 0
-    ? brief.researchMapCards
-    : [
-        {
-          id: 'problem',
-          stageLabel: 'Step 1: Problem',
-          title: 'Problem Grounding: ' + brief.problemValidation.coreProblemStatement.slice(0, 60) + '...',
-          status: 'source-supported',
-          summary: brief.problemValidation.coreProblemStatement,
-          accessibleExplanation: brief.problemValidation.realWorldImpact,
-          deepScholarlyExplanation: `Critical failure modes: ${brief.problemValidation.failureModesOfStatusQuo.join('; ')}`,
-          limitations: ['Concentrated on specific production operating environments.'],
-          sources: brief.problemValidation.evidencePoints.map((ep, i) => ({
-            id: `src-p-${i}`,
-            title: ep.phenomenonOrSource,
-            yearOrDate: '2024',
-            category: 'existence',
-            stance: 'supporting',
-            reviewScope: 'full_paper',
-            isPrimarySource: true,
-            methodSummary: ep.claim,
-            findingsSummary: ep.realWorldSignificance,
-            limitations: 'Contextual to specific reported workloads.',
-            excerpt: ep.claim,
-          })),
-        },
-        {
-          id: 'evidence',
-          stageLabel: 'Step 2: Evidence',
-          title: 'Empirical Verification & Literature Landscape',
-          status: 'insufficient-evidence',
-          summary: brief.knowledgeLandscape.criticalKnowledgeGap,
-          accessibleExplanation: 'Investigating whether observed friction reflects a widespread phenomenon or a local artifact.',
-          deepScholarlyExplanation: brief.knowledgeLandscape.whyUnsolvedUntilNow,
-          limitations: ['Literature has gaps in real-world benchmark evaluations under deployment constraints.'],
-          sources: [],
-          evidenceInsufficientAdvice: 'Keep the claim uncertain until tested under controlled conditions. Do not rely solely on community blog complaints.',
-        },
-        {
-          id: 'research_question',
-          stageLabel: 'Step 3: Research Question',
-          title: brief.experimentDesign.primaryResearchQuestion,
-          status: 'AI-inferred',
-          summary: brief.experimentDesign.primaryResearchQuestion,
-          accessibleExplanation: 'A crisp, testable question connecting the real-world problem to an empirical evaluation.',
-          deepScholarlyExplanation: 'Multi-objective Pareto evaluation under stated operational constraints.',
-          limitations: ['Constrained by accessible datasets and compute budget.'],
-          sources: [],
-        },
-        {
-          id: 'hypothesis',
-          stageLabel: 'Step 4: Hypothesis',
-          title: 'Falsifiable Hypothesis',
-          status: 'hypothesis',
-          summary: brief.experimentDesign.falsifiableHypothesis,
-          accessibleExplanation: 'The exact testable prediction with measurable thresholds that would disprove it.',
-          deepScholarlyExplanation: `Primary metric: ${brief.experimentDesign.dependentVariablesAndMetrics[0]?.targetBenchmark || 'Rigorous threshold'}`,
-          limitations: ['Dependent on baseline reproducibility.'],
-          sources: [],
-          expectedOutcomeWarning: 'Warning: Expected outcome is a testable hypothesis, NOT an established empirical fact.',
-        },
-        {
-          id: 'experiment',
-          stageLabel: 'Step 5: Experiment',
-          title: 'Controlled Empirical Experiment Protocol',
-          status: 'source-supported',
-          summary: `Testing on ${brief.experimentDesign.datasetAndApparatus.primaryDatasetOrSetup}`,
-          accessibleExplanation: 'A step-by-step experiment designed to fairly test our hypothesis against appropriate baselines.',
-          deepScholarlyExplanation: `Hardware: ${brief.intake.constraints.computeTier}; Runway: ${brief.intake.constraints.timeHorizonWeeks} weeks.`,
-          limitations: brief.experimentDesign.validityThreats.map(t => `${t.threatType}: ${t.description}`),
-          sources: [],
-        },
-      ];
+  const [reasoningMap, setReasoningMap] = useState<LiveReasoningMap | null>(null);
+  const cards = liveReasoningCards(reasoningMap);
 
   const [activeCardId, setActiveCardId] = useState<'problem' | 'evidence' | 'research_question' | 'hypothesis' | 'experiment'>('evidence');
-  const [messages, setMessages] = useState<ConversationMessage[]>(
-    brief.id === 'brief-llm-latency-01'
-      ? INITIAL_LLM_LATENCY_CONVERSATION
-      : [
-          {
-            id: 'msg-init-1',
-            sender: 'user',
-            text: `We are investigating: "${brief.intake.problemOrObservation}" in ${brief.intake.domain}.`,
-            timestamp: 'Just now',
-            linkedCardId: 'problem',
-          },
-          {
-            id: 'msg-init-2',
-            sender: 'advisor',
-            text: `Welcome to Ideally's Two Working Areas. On the left is our Socratic research discussion; on the right is your live Reasoning Chain (Problem -> Evidence -> Research Question -> Hypothesis -> Experiment).
-
-Under Ideally's Evidence Principles:
-• We treat your observation as an inquiry to verify, not an established fact.
-• We explicitly separate source-supported facts from AI inference and hypotheses.
-• We search for both supporting and contradictory findings.
-
-Select any card on the right to inspect sources, examine limitations, or trigger an on-demand "Find Evidence" search!`,
-            timestamp: 'Just now',
-            linkedCardId: 'evidence',
-          },
-        ]
-  );
+  const [messages, setMessages] = useState<ConversationMessage[]>([]);
   const [inputText, setInputText] = useState(initialAdvisorQuery || '');
   const [isSending, setIsSending] = useState(false);
   const sendingRef = useRef(false);
+  const loadedSessionRef = useRef<string | null>(null);
+  const [isHistoryLoading, setIsHistoryLoading] = useState(Boolean(chatSessionId));
   const [chatError, setChatError] = useState<string | null>(null);
   const [isSearchingEvidence, setIsSearchingEvidence] = useState(false);
   const [expandedSourceId, setExpandedSourceId] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!chatSessionId) {
+      loadedSessionRef.current = null;
+      setMessages([]);
+      setReasoningMap(null);
+      setIsHistoryLoading(false);
+      return;
+    }
+    if (loadedSessionRef.current === chatSessionId) return;
+    const controller = new AbortController();
+    setIsHistoryLoading(true);
+    const loadHistory = async () => {
+      try {
+        const response = await fetch(`/api/v1/sessions/${encodeURIComponent(chatSessionId)}`, {
+          signal: controller.signal,
+        });
+        if (response.status === 404) {
+          onChatSessionChange(null);
+          return;
+        }
+        if (!response.ok) throw new Error(`Unable to load session history (${response.status})`);
+        const session = await response.json();
+        if (!Array.isArray(session.messages)) throw new Error('Invalid session history');
+        setReasoningMap(session.research?.reasoning_map || null);
+        loadedSessionRef.current = chatSessionId;
+        setMessages(session.messages
+          .filter((message: { role: string }) => ['user', 'assistant'].includes(message.role))
+          .map((message: { id: string; role: string; content: string; created_at: string }) => ({
+            id: message.id,
+            sender: message.role === 'assistant' ? 'advisor' : 'user',
+            text: message.content,
+            timestamp: new Date(message.created_at).toLocaleTimeString([], {
+              hour: '2-digit', minute: '2-digit',
+            }),
+          })));
+      } catch (error) {
+        if (!controller.signal.aborted) {
+          setChatError(error instanceof Error ? error.message : 'Unable to load session history');
+        }
+      } finally {
+        if (!controller.signal.aborted) setIsHistoryLoading(false);
+      }
+    };
+    void loadHistory();
+    return () => controller.abort();
+  }, [chatSessionId, onChatSessionChange]);
 
   const handleOpenGlossary = (term?: string) => {
     if (onOpenGlossary) {
@@ -218,9 +169,9 @@ Select any card on the right to inspect sources, examine limitations, or trigger
 
   const quickPrompts = audienceMode === 'beginner' ? beginnerPrompts : experiencedPrompts;
 
-  const handleSendMessage = async (textToSend?: string) => {
+  const handleSendMessage = async (textToSend?: string, research = false) => {
     const query = textToSend || inputText;
-    if (!query.trim() || sendingRef.current) return;
+    if (!query.trim() || sendingRef.current || isHistoryLoading) return;
     sendingRef.current = true;
     setChatError(null);
 
@@ -243,7 +194,7 @@ Select any card on the right to inspect sources, examine limitations, or trigger
         body: JSON.stringify({
           message: query.trim(),
           session_id: chatSessionId,
-          research: false,
+          research,
         }),
       });
 
@@ -256,6 +207,8 @@ Select any card on the right to inspect sources, examine limitations, or trigger
       if (typeof data.reply !== 'string' || !data.reply.trim() || !data.session_id) {
         throw new Error('Chat API returned an invalid response');
       }
+      if (data.research?.reasoning_map) setReasoningMap(data.research.reasoning_map);
+      loadedSessionRef.current = data.session_id;
       onChatSessionChange(data.session_id);
 
       const advisorMsg: ConversationMessage = {
@@ -273,6 +226,7 @@ Select any card on the right to inspect sources, examine limitations, or trigger
         setActiveCardId(data.suggestedCardId);
       }
     } catch (error) {
+      setMessages(prev => prev.filter(message => message.id !== userMsg.id));
       setChatError(error instanceof Error ? error.message : 'Unable to connect to the chat API');
       if (!textToSend) setInputText(query);
     } finally {
@@ -282,36 +236,15 @@ Select any card on the right to inspect sources, examine limitations, or trigger
   };
 
   const handleFindEvidence = async (cardId: string) => {
+    if ((!reasoningMap && !chatSessionId) || isSending || isHistoryLoading || isSearchingEvidence) return;
     setIsSearchingEvidence(true);
-    try {
-      const res = await fetch('/api/advisor/find-evidence', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          brief,
-          cardId,
-          domain: brief.intake.domain,
-        }),
-      });
-      if (!res.ok) throw new Error('Find evidence error');
-      const data = await res.json();
-      if (data.updatedCard && onUpdateBriefCards) {
-        const nextCards = cards.map(c => c.id === cardId ? { ...c, ...data.updatedCard } : c);
-        onUpdateBriefCards(nextCards);
-      }
-    } catch {
-      // Local enhancement notification
-      const advisoryNote: ConversationMessage = {
-        id: `msg-ev-${Date.now()}`,
-        sender: 'advisor',
-        text: `On-Demand Evidence Search for [${activeCard.title}]: Retrieved 2 primary peer-reviewed sources and verified empirical benchmarks. Notice the distinction between evidence of existence (problem occurs in production) and evidence of prevalence (percentage of incidents impacted).`,
-        timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-        linkedCardId: activeCardId,
-      };
-      setMessages(prev => [...prev, advisoryNote]);
-    } finally {
-      setIsSearchingEvidence(false);
-    }
+    await handleSendMessage(
+      reasoningMap
+        ? `Find external evidence for this ${cardId.replace('_', ' ')} in our current discussion: ${cards.find(card => card.id === cardId)?.summary}. Update the five reasoning cards using actual sources and explain limitations.`
+        : 'Build a five-card reasoning map from our actual conversation: problem, evidence, research_question, hypothesis, experiment. Search for relevant external sources and keep unknown constraints and measurements explicit.',
+      true,
+    );
+    setIsSearchingEvidence(false);
   };
 
   const getStatusBadge = (status: CardEvidenceStatus) => {
@@ -390,11 +323,11 @@ Select any card on the right to inspect sources, examine limitations, or trigger
         {/* Left: Active Research Title & Domain */}
         <div className="flex items-center gap-2.5 min-w-0">
           <span className="font-bold text-slate-900 font-serif-scholarly truncate text-sm sm:text-base">
-            {brief.title}
+            {reasoningMap?.problem.title || 'Your Research Workspace'}
           </span>
           <span className="text-slate-300 hidden sm:inline" aria-hidden="true">·</span>
           <span className="text-xs text-slate-500 hidden sm:inline truncate max-w-xs font-medium">
-            {brief.intake.domain}
+            {chatSessionId ? 'Saved session' : 'New conversation'}
           </span>
           {currentLanguage !== 'en' && (
             <span className="text-[10px] font-semibold px-2 py-0.5 rounded bg-indigo-50 text-indigo-700 border border-indigo-200 hidden md:inline-flex items-center gap-1">
@@ -406,41 +339,6 @@ Select any card on the right to inspect sources, examine limitations, or trigger
 
         {/* Right: Clean, Cohesive Controls */}
         <div className="flex items-center gap-2">
-          {/* Cloud Translation Brief Button for Japan & APAC */}
-          {currentLanguage !== 'en' && (
-            <button
-              onClick={async () => {
-                const translated = await translateBriefContent(brief, currentLanguage);
-                if (translated && onUpdateBriefCards) {
-                  const updated = cards.map((c) => {
-                    if (c.id === 'problem' && translated.problemValidation?.coreProblemStatement) {
-                      return { ...c, summary: translated.problemValidation.coreProblemStatement };
-                    }
-                    if (c.id === 'research_question' && translated.experimentDesign?.primaryResearchQuestion) {
-                      return { ...c, summary: translated.experimentDesign.primaryResearchQuestion };
-                    }
-                    if (c.id === 'hypothesis' && translated.experimentDesign?.falsifiableHypothesis) {
-                      return { ...c, summary: translated.experimentDesign.falsifiableHypothesis };
-                    }
-                    return c;
-                  });
-                  onUpdateBriefCards(updated);
-                }
-              }}
-              disabled={isTranslating}
-              className="px-2.5 py-1 rounded-lg border border-indigo-200 bg-indigo-50/90 hover:bg-indigo-100 text-indigo-900 text-xs font-medium transition-colors flex items-center gap-1 shadow-2xs"
-              title={`Translate research proposal components into ${activeLanguageInfo.nativeName}`}
-            >
-              {isTranslating ? (
-                <RefreshCw className="w-3 h-3 text-indigo-600 animate-spin" />
-              ) : (
-                <Languages className="w-3 h-3 text-indigo-600" />
-              )}
-              <span className="hidden sm:inline">{t('btnTranslateBrief')}</span>
-            </button>
-          )}
-
-          {/* Audience Mode Switch */}
           <div className="flex items-center bg-slate-100 p-0.5 rounded-lg border border-slate-200/90 text-xs">
             <button
               onClick={() => audienceMode !== 'beginner' && onAudienceModeToggle()}
@@ -520,7 +418,7 @@ Select any card on the right to inspect sources, examine limitations, or trigger
                 <button
                   key={idx}
                   onClick={() => handleSendMessage(qp.prompt)}
-                  disabled={isSending}
+                  disabled={isSending || isHistoryLoading}
                   className="px-2.5 py-1 rounded-md text-[11px] font-medium bg-white hover:bg-slate-100 text-slate-700 border border-slate-200 hover:border-slate-300 whitespace-nowrap transition-colors shrink-0 disabled:opacity-50 shadow-2xs"
                   title={qp.prompt}
                 >
@@ -591,6 +489,10 @@ Select any card on the right to inspect sources, examine limitations, or trigger
               );
             })}
 
+            {isHistoryLoading && (
+              <div role="status" className="p-2 text-xs text-slate-500">Loading conversation history...</div>
+            )}
+
             {isSending && (
               <div className="flex items-center gap-2 text-slate-500 text-xs italic p-2">
                 <RefreshCw className="w-3.5 h-3.5 animate-spin text-slate-400" />
@@ -620,12 +522,12 @@ Select any card on the right to inspect sources, examine limitations, or trigger
                 value={inputText}
                 onChange={(e) => setInputText(e.target.value)}
                 placeholder="Ask about evidence, clarify context, or challenge assumptions..."
-                disabled={isSending}
+                disabled={isSending || isHistoryLoading}
                 className="flex-1 px-3 py-2 text-xs rounded-lg border border-slate-200 focus:outline-none focus:ring-1 focus:ring-slate-900 disabled:opacity-50"
               />
               <button
                 type="submit"
-                disabled={isSending || !inputText.trim()}
+                disabled={isSending || isHistoryLoading || !inputText.trim()}
                 className="px-3.5 py-2 text-xs font-semibold text-white bg-slate-900 hover:bg-slate-800 rounded-lg transition-colors disabled:opacity-40 flex items-center gap-1"
               >
                 <Send className="w-3.5 h-3.5" />
@@ -657,12 +559,12 @@ Select any card on the right to inspect sources, examine limitations, or trigger
 
             <button
               onClick={() => handleFindEvidence(activeCard.id)}
-              disabled={isSearchingEvidence}
+              disabled={(!reasoningMap && !chatSessionId) || isSearchingEvidence || isSending || isHistoryLoading}
               className="px-3 py-1.5 text-xs font-medium text-slate-700 bg-white hover:bg-slate-100 border border-slate-200 rounded-lg transition-colors flex items-center gap-1.5 shadow-2xs disabled:opacity-50"
               title="Search verified primary literature, technical reports, and benchmarks for this card"
             >
               <Search className={`w-3.5 h-3.5 text-slate-500 ${isSearchingEvidence ? 'animate-spin' : ''}`} />
-              <span>{isSearchingEvidence ? 'Searching Sources...' : 'Find Evidence'}</span>
+              <span>{isSearchingEvidence ? 'Searching Sources...' : reasoningMap ? 'Find Evidence' : 'Build Research Map'}</span>
             </button>
           </div>
 
@@ -707,6 +609,11 @@ Select any card on the right to inspect sources, examine limitations, or trigger
 
           {/* Active Card Inspector (Scrollable Details Pane) */}
           <div className="flex-1 p-6 overflow-y-auto space-y-6">
+            {!reasoningMap && (
+              <div role="status" className="p-4 rounded-xl bg-slate-50 text-sm text-slate-600">
+                {isSending ? 'Building your research map from this conversation...' : 'Ask a research question to build your map. No sample data is loaded.'}
+              </div>
+            )}
             {/* Card Title, Stage & Status Badge */}
             <div className="space-y-2 border-b border-slate-100 pb-4">
               <div className="flex flex-wrap items-center justify-between gap-2">
@@ -772,105 +679,6 @@ Select any card on the right to inspect sources, examine limitations, or trigger
               )}
             </div>
 
-            {/* Embedded Diagram / Visual (Section 5: "Visuals may include a problem story, a mechanism diagram, and comparison tables. Expected outcomes must be labelled as hypotheses") */}
-            {activeCard.visualType && (
-              <div className="space-y-2 pt-2 border-t border-slate-100">
-                <div className="flex items-center justify-between">
-                  <span className="text-xs font-bold uppercase tracking-wider text-slate-500 flex items-center gap-1.5">
-                    <Layers className="w-3.5 h-3.5 text-slate-600" />
-                    <span>{activeCard.visualTitle || 'Analytical Visual'}</span>
-                  </span>
-                  <span className="text-[10px] text-slate-400 italic">
-                    (Illustrative Model — Not Empirical Proof)
-                  </span>
-                </div>
-
-                {activeCard.visualType === 'latency_profile' && activeCard.visualData && (
-                  <div className="p-4 rounded-xl bg-slate-900 text-white space-y-3 font-mono text-xs">
-                    <div className="text-[11px] text-slate-400">
-                      // Wall-Clock Latency Profile Comparison (p99 Interactive Batch=1)
-                    </div>
-                    <div className="space-y-2">
-                      <div>
-                        <div className="flex justify-between text-[11px] mb-1">
-                          <span className="text-emerald-400 font-semibold">ModernBERT (Non-Autoregressive)</span>
-                          <span className="text-emerald-400 font-bold">{activeCard.visualData.encoder?.totalMs}ms</span>
-                        </div>
-                        <div className="w-full bg-slate-800 rounded-full h-2.5 overflow-hidden flex">
-                          <div className="bg-emerald-500 h-2.5" style={{ width: '4%' }} />
-                        </div>
-                        <span className="text-[10px] text-slate-400">Prefill: 16ms | Single Feedforward: 2ms | VRAM: 0.8GB</span>
-                      </div>
-
-                      <div>
-                        <div className="flex justify-between text-[11px] mb-1">
-                          <span className="text-rose-400 font-semibold">8B Autoregressive LLM (vLLM JSON-mode)</span>
-                          <span className="text-rose-400 font-bold">{activeCard.visualData.llmAutoregressive?.totalMs}ms</span>
-                        </div>
-                        <div className="w-full bg-slate-800 rounded-full h-2.5 overflow-hidden flex">
-                          <div className="bg-amber-500 h-2.5" style={{ width: '25%' }} title="Prefill" />
-                          <div className="bg-rose-500 h-2.5" style={{ width: '75%' }} title="Sequential Tokens" />
-                        </div>
-                        <span className="text-[10px] text-slate-400">Prefill: 110ms | Sequential KV-Tokens: 310ms | VRAM: 16.2GB</span>
-                      </div>
-                    </div>
-                  </div>
-                )}
-
-                {activeCard.visualType === 'problem_story' && activeCard.visualData && (
-                  <div className="p-4 rounded-xl bg-slate-50 border border-slate-200/80 space-y-2 text-xs">
-                    {activeCard.visualData.steps?.map((st: any, i: number) => (
-                      <div key={i} className="flex items-start gap-2.5">
-                        <span className="w-4 h-4 rounded-full bg-slate-200 text-slate-800 text-[10px] font-bold flex items-center justify-center shrink-0 mt-0.5">
-                          {i + 1}
-                        </span>
-                        <div>
-                          <span className="font-semibold text-slate-900">{st.label}: </span>
-                          <span className="text-slate-600">{st.detail}</span>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                )}
-
-                {activeCard.visualType === 'comparison_table' && activeCard.visualData && (
-                  <div className="border border-slate-200 rounded-xl overflow-hidden text-xs">
-                    <table className="w-full text-left border-collapse">
-                      <thead className="bg-slate-50 border-b border-slate-200 font-semibold text-slate-800">
-                        <tr>
-                          {activeCard.visualData.columns?.map((col: string, idx: number) => (
-                            <th key={idx} className="p-2.5">{col}</th>
-                          ))}
-                        </tr>
-                      </thead>
-                      <tbody className="divide-y divide-slate-100 text-slate-700">
-                        {activeCard.visualData.rows?.map((row: string[], rIdx: number) => (
-                          <tr key={rIdx} className={rIdx % 2 === 0 ? 'bg-white' : 'bg-slate-50/40'}>
-                            {row.map((cell, cIdx) => (
-                              <td key={cIdx} className={`p-2.5 ${cIdx === 0 ? 'font-semibold text-slate-900' : ''}`}>
-                                {cell}
-                              </td>
-                            ))}
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
-                )}
-
-                {activeCard.visualType === 'mechanism_diagram' && activeCard.visualData && (
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs">
-                    {activeCard.visualData.phases?.map((p: any, pIdx: number) => (
-                      <div key={pIdx} className="p-3 rounded-lg bg-slate-50 border border-slate-200/80 space-y-1">
-                        <span className="font-semibold text-slate-900 block">{p.name}</span>
-                        <p className="text-[11px] text-slate-600">{p.desc}</p>
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </div>
-            )}
-
             {/* Traceable Sources Section (Section 4 Evidence Principles) */}
             <div className="space-y-3 pt-2 border-t border-slate-100">
               <div className="flex items-center justify-between">
@@ -902,6 +710,7 @@ Select any card on the right to inspect sources, examine limitations, or trigger
                   </p>
                   <div className="flex flex-wrap items-center justify-center gap-2">
                     <button
+                      disabled={!reasoningMap || isSending || isSearchingEvidence || isHistoryLoading}
                       onClick={() => handleFindEvidence(activeCard.id)}
                       className="px-3 py-1.5 text-xs font-semibold text-white bg-slate-900 hover:bg-slate-800 rounded-lg transition-colors inline-flex items-center gap-1"
                     >
@@ -947,13 +756,14 @@ Select any card on the right to inspect sources, examine limitations, or trigger
                                     : 'bg-emerald-100 text-emerald-800 border border-emerald-300'
                                 }`}
                               >
-                                {isContradictory ? 'Contradictory Finding' : 'Supporting Finding'}
+                                {isContradictory ? 'Contradictory Finding' : src.stance === 'unclassified' ? 'Retrieved Source' : 'Supporting Finding'}
                               </span>
 
                               <span className="text-[10px] text-slate-500 font-mono-tabular">
                                 {src.yearOrDate} {src.venueOrPublisher ? `· ${src.venueOrPublisher}` : ''}
                               </span>
 
+                              {src.reviewScope === 'search_snippet' && (<span className="text-[9px] text-slate-500">Search excerpt</span>)}
                               {src.reviewScope === 'abstract_only' && (
                                 <span className="px-1.5 py-0.5 rounded text-[9px] font-medium bg-slate-100 text-slate-600 border border-slate-200">
                                   Abstract Only Reviewed
@@ -1034,28 +844,7 @@ Select any card on the right to inspect sources, examine limitations, or trigger
               </ul>
             </div>
 
-            {/* Stage Deep Dive Link */}
-            <div className="pt-4 border-t border-slate-200 flex items-center justify-between">
-              <span className="text-xs text-slate-500">
-                Inspect formal methodology views:
-              </span>
-              <button
-                onClick={() => {
-                  const stageMap: Record<string, any> = {
-                    problem: 'problem',
-                    evidence: 'knowledge',
-                    research_question: 'tradeoffs',
-                    hypothesis: 'experiment',
-                    experiment: 'experiment',
-                  };
-                  onNavigateToStage(stageMap[activeCard.id] || 'brief');
-                }}
-                className="px-4 py-2 text-xs font-semibold text-slate-900 bg-slate-100 hover:bg-slate-200 rounded-lg transition-colors flex items-center gap-1.5"
-              >
-                <span>Open Full Stage View</span>
-                <ArrowRight className="w-3.5 h-3.5" />
-              </button>
-            </div>
+
           </div>
         </section>
       </div>

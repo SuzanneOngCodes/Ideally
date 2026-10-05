@@ -40,6 +40,7 @@ app.use(["/api/v1", "/api/backend/health"], (req, res) => {
 	const upstream = transport.request(target, { method: req.method, headers }, (response) => {
 		res.status(response.statusCode || 502);
 		if (response.headers["content-type"]) res.setHeader("content-type", response.headers["content-type"]);
+		if (response.headers["retry-after"]) res.setHeader("retry-after", response.headers["retry-after"]);
 		response.on("error", () => res.destroy());
 		response.pipe(res);
 	});

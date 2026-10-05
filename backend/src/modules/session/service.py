@@ -37,15 +37,25 @@ async def send_message(
         raise HTTPException(504, "AI request timed out; retry your message") from error
     except Exception as error:
         # Do not log provider exceptions containing prompts, keys, or response bodies.
-        logger.error("AI request failed: %s", type(error).__name__)
         code = getattr(error, "code", None) or getattr(error.__cause__, "code", None)
+        logger.error(
+            "AI request failed: error_type=%s provider_status=%s", type(error).__name__, code
+        )
         if code == 404:
             raise HTTPException(
                 502, "AI model not available; check GEMINI_MODEL and GEMINI_FALLBACK_MODEL"
             ) from error
-        if code in (429, 503):
+        if code == 429:
             raise HTTPException(
-                503, "AI provider busy or rate limited; retry your message"
+                503,
+                "Gemini rate limit or quota exceeded; check AI Studio quota and retry later",
+                headers={"Retry-After": "10"},
+            ) from error
+        if code == 503:
+            raise HTTPException(
+                503,
+                "Gemini temporarily unavailable after retries and model fallback; retry later",
+                headers={"Retry-After": "10"},
             ) from error
         raise HTTPException(502, "AI provider request failed") from error
     if session_id is None:
@@ -64,7 +74,10 @@ async def send_message(
     if count == 0:
         session.title = content[:200]
     if result.research is not None:
-        session.research = result.research.model_dump(mode="json")
+        updated_research = result.research.model_dump(mode="json")
+        if not updated_research.get("reasoning_map") and session.research:
+            updated_research["reasoning_map"] = session.research.get("reasoning_map")
+        session.research = updated_research
     db.commit()
     return MessageResponse(
         session_id=session_id,

@@ -217,3 +217,59 @@ def test_chat_provider_failure_leaves_no_empty_session(client, error, status):
     client.app.state.agent.error = error
     assert client.post("/api/v1/chat", json={"message": "Hi"}).status_code == status
     assert client.get("/api/v1/sessions").json() == []
+
+
+@pytest.mark.parametrize("code, phrase", [(429, "quota"), (503, "temporarily unavailable")])
+def test_provider_failure_is_classified_and_does_not_save_messages(client, code, phrase):
+    class ProviderFailure(Exception):
+        pass
+
+    error = ProviderFailure("private provider response")
+    error.code = code
+    client.app.state.agent.error = error
+    response = client.post("/api/v1/chat", json={"message": "Hello"})
+    assert response.status_code == 503
+    assert phrase in response.json()["detail"]
+    assert response.headers["retry-after"] == "10"
+    assert "private provider response" not in response.text
+    assert client.get("/api/v1/sessions").json() == []
+
+
+def test_reasoning_map_is_saved_and_survives_followup(client):
+    from src.modules.research.schemas import ReasoningCard, ReasoningMap
+
+    reasoning = ReasoningMap(
+        **{
+            name: ReasoningCard(
+                title=name,
+                summary="Actual user topic",
+                explanation="Generated from conversation",
+            )
+            for name in ("problem", "evidence", "research_question", "hypothesis", "experiment")
+        }
+    )
+
+    async def reply(history, research):
+        return AgentReply(
+            answer="Research answer",
+            research=ResearchResult(
+                title="Real topic",
+                summary="Summary",
+                reasoning_map=reasoning,
+            ),
+        )
+
+    client.app.state.agent.reply = reply
+    response = client.post("/api/v1/chat", json={"message": "My actual research topic"})
+    assert response.status_code == 200
+    data = response.json()
+    session_id = data["session_id"]
+    saved = client.get(f"/api/v1/sessions/{session_id}").json()
+    assert saved["research"]["reasoning_map"] == reasoning.model_dump(mode="json")
+
+    async def followup(history, research):
+        return AgentReply(answer="Simple followup")
+
+    client.app.state.agent.reply = followup
+    response = client.post("/api/v1/chat", json={"message": "Thanks", "session_id": session_id})
+    assert response.json()["research"]["reasoning_map"] == data["research"]["reasoning_map"]
