@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useState } from 'react';
+import React, { useState, useCallback } from 'react';
 import { Header, NavTab } from './components/Header';
 import { ResearchWorkflowRibbon } from './components/ResearchWorkflowRibbon';
 import { MethodologyModal } from './components/MethodologyModal';
@@ -34,6 +34,16 @@ export default function App() {
   const [activeTab, setActiveTab] = useState<NavTab>('home');
   const [audienceMode, setAudienceMode] = useState<AudienceMode>('beginner');
   const [advisorQuery, setAdvisorQuery] = useState<string>('');
+  const [chatSessionId, updateChatSessionId] = useState<string | null>(() => {
+    try { return localStorage.getItem('ideally.defaultChatSession'); } catch { return null; }
+  });
+  const setChatSessionId = useCallback((sessionId: string | null) => {
+    updateChatSessionId(sessionId);
+    try {
+      if (sessionId) localStorage.setItem('ideally.defaultChatSession', sessionId);
+      else localStorage.removeItem('ideally.defaultChatSession');
+    } catch { /* Session still works when browser storage is unavailable. */ }
+  }, []);
   const [auditCustomText, setAuditCustomText] = useState<string>('');
   const [isPresetsOpen, setIsPresetsOpen] = useState(false);
   const [isMethodologyOpen, setIsMethodologyOpen] = useState(false);
@@ -64,6 +74,7 @@ export default function App() {
   };
 
   const handleSelectPreset = (preset: PresetScenario) => {
+    setChatSessionId(null);
     setActivePreset(preset);
     setCurrentBrief(preset.brief);
     setCurrentProbes(preset.defenseProbes);
@@ -152,6 +163,7 @@ export default function App() {
 
       const data = await response.json();
       if (data.brief) {
+        setChatSessionId(null);
         setCurrentBrief(data.brief);
         // Also fetch fresh defense probes for this new brief
         try {
@@ -320,6 +332,8 @@ export default function App() {
             onOpenGlossary={handleOpenGlossary}
             onOpenPrinciples={() => setIsPrinciplesOpen(true)}
             initialAdvisorQuery={advisorQuery}
+            chatSessionId={chatSessionId}
+            onChatSessionChange={setChatSessionId}
           />
         )}
 

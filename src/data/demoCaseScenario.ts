@@ -1,49 +1,7 @@
 import type { PresetScenario } from './presetScenarios';
-import type { ConversationMessage, ResearchMapCard } from '../types/research';
+import type { ResearchMapCard } from '../types/research';
 
-export const INITIAL_LLM_LATENCY_CONVERSATION: ConversationMessage[] = [
-  {
-    id: 'msg-1',
-    sender: 'user',
-    text: 'I notice that LLMs return results token by token. Does that make classification or recommendation slow? Could a simpler model return the result all at once?',
-    timestamp: '10:00 AM',
-    linkedCardId: 'problem',
-  },
-  {
-    id: 'msg-2',
-    sender: 'advisor',
-    text: `That is an insightful observation, but under Ideally's Evidence Principles, we must separate your initial observation from a hasty conclusion before jumping to a solution:
 
-1. For which specific software engineering task is latency a genuine operational problem?
-2. How much latency actually comes from output token generation versus Time-to-First-Token (prompt prefill) or network hops?
-3. Does "all at once" refer to frontend UI streaming or backend model computation (non-autoregressive parallel evaluation)?
-4. What specialized solutions (such as modern long-context encoders or speculative decoding) already exist?
-
-Let's ground this in a concrete industrial pain point: software support-ticket classification and incident triaging under strict webhook SLA bounds (<100ms). Notice that on the Research Map to the right, we have marked this claim with [Insufficient Evidence] until we verify measured empirical data.`,
-    timestamp: '10:01 AM',
-    linkedCardId: 'evidence',
-    actionPrompt: 'Examine Supporting vs. Contradictory Evidence',
-  },
-  {
-    id: 'msg-3',
-    sender: 'user',
-    text: 'Why is software support-ticket classification a good concrete context for this capstone?',
-    timestamp: '10:03 AM',
-    linkedCardId: 'problem',
-  },
-  {
-    id: 'msg-4',
-    sender: 'advisor',
-    text: `Because support-ticket classification has high business criticality, strict p99 latency thresholds (<100ms for incoming webhooks), and high volume during production outages. 
-
-When teams deploy an 8B autoregressive LLM to output a single tag (like "bug: high priority"), each token requires sequential memory-bandwidth-bound KV-cache lookups. In contrast, a specialized encoder (like ModernBERT or DeBERTa) processes the entire issue description in a single parallel forward pass, returning results in under 25ms.
-
-We conducted a literature search on both supporting and contradictory findings. Notice that speculative decoding and batching amortize latency in batch settings, but under batch-size=1 live webhooks, encoders maintain a 10x-15x advantage.`,
-    timestamp: '10:04 AM',
-    linkedCardId: 'research_question',
-    actionPrompt: 'Review Falsifiable Research Question',
-  },
-];
 
 export const LLM_LATENCY_MAP_CARDS: ResearchMapCard[] = [
   {

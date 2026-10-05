@@ -1,40 +1,28 @@
-# Production Dockerfile for Google Cloud Run (Container Instances)
-# Ideally — AI Research Advisor
-# Builds Vite client assets and runs Express backend with HTTP/2 and 0.0.0.0 binding
-
-FROM node:20-alpine AS builder
-
+# Cloud Run: Express ingress and supervised internal FastAPI.
+FROM node:22-bookworm-slim AS builder
 WORKDIR /app
-
-# Copy package files and install dependencies
 COPY package*.json ./
 RUN npm ci
-
-# Copy full application source
 COPY . .
-
-# Build Vite frontend assets to /app/dist
 RUN npm run build
 
-# Production runtime stage
-FROM node:20-alpine AS runner
-
+FROM node:22-bookworm-slim AS runner
+COPY --from=ghcr.io/astral-sh/uv:0.10.0 /uv /usr/local/bin/uv
+RUN apt-get update && apt-get install -y --no-install-recommends python3 python3-venv ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
 WORKDIR /app
-
-ENV NODE_ENV=production
-ENV PORT=3000
-
-# Copy package files and install production dependencies
 COPY package*.json ./
-RUN npm ci --only=production && npm install tsx -g
-
-# Copy built frontend assets and server
+# tsx is required at runtime to execute server.ts; install from the lockfile.
+RUN npm ci
+COPY backend/pyproject.toml backend/uv.lock ./backend/
+RUN cd backend && UV_PYTHON_DOWNLOADS=never uv sync --frozen --no-dev --python /usr/bin/python3
+COPY backend/src ./backend/src
 COPY --from=builder /app/dist ./dist
-COPY --from=builder /app/server.ts ./
-COPY --from=builder /app/src/types ./src/types
-
-# Expose container port (Cloud Run sets PORT=8080 or PORT=3000)
-EXPOSE 3000
-
-# Start server using tsx in production mode
-CMD ["npx", "tsx", "server.ts"]
+COPY server.ts ./server.ts
+COPY src/types ./src/types
+COPY scripts/start-cloud-run.py ./scripts/start-cloud-run.py
+ENV NODE_ENV=production PORT=8080 PYTHON_BACKEND_URL=http://127.0.0.1:8000
+# Override DATABASE_URL with PostgreSQL for durable sessions.
+ENV DATABASE_URL=sqlite:////tmp/ideally.db
+EXPOSE 8080
+CMD ["python3", "scripts/start-cloud-run.py"]
