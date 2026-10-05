@@ -2,6 +2,8 @@ import express from "express";
 import dotenv from "dotenv";
 import path from "path";
 import { fileURLToPath } from "url";
+import http from "node:http";
+import https from "node:https";
 import { GoogleGenAI } from "@google/genai";
 import type { ResearchBrief, UserIntake, SocraticDefenseProbe } from "./src/types/research.ts";
 
@@ -11,10 +13,48 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 const app = express();
-// Always bind to port 3000 in accordance with AI Studio runtime environment
-const PORT = 3000;
+const PORT = Number(process.env.PORT || 3000);
 
 app.use(express.json({ limit: "10mb" }));
+
+// Expose the Python FastAPI service through the same origin as the frontend.
+const pythonBackendUrl = new URL(process.env.PYTHON_BACKEND_URL || "http://127.0.0.1:8000");
+if (!["http:", "https:"].includes(pythonBackendUrl.protocol)) {
+	throw new Error("PYTHON_BACKEND_URL must use HTTP or HTTPS");
+}
+
+app.use(["/api/v1", "/api/backend/health"], (req, res) => {
+	const upstreamPath = req.path === "/" && req.baseUrl === "/api/backend/health"
+		? "/health"
+		: req.originalUrl;
+	const target = new URL(upstreamPath, pythonBackendUrl);
+	const body = req.body !== undefined && !["GET", "HEAD"].includes(req.method)
+		? JSON.stringify(req.body)
+		: undefined;
+	const headers: http.OutgoingHttpHeaders = { accept: req.headers.accept || "application/json" };
+	if (body !== undefined) {
+		headers["content-type"] = "application/json";
+		headers["content-length"] = Buffer.byteLength(body);
+	}
+	const transport = target.protocol === "https:" ? https : http;
+	const upstream = transport.request(target, { method: req.method, headers }, (response) => {
+		res.status(response.statusCode || 502);
+		if (response.headers["content-type"]) res.setHeader("content-type", response.headers["content-type"]);
+		response.on("error", () => res.destroy());
+		response.pipe(res);
+	});
+	upstream.setTimeout(180_000, () => {
+		if (!res.headersSent) res.status(504).json({ error: "Python backend request timed out" });
+		upstream.destroy();
+	});
+	upstream.on("error", () => {
+		if (!res.headersSent && !res.destroyed) {
+			res.status(502).json({ error: "Python backend unavailable" });
+		}
+	});
+	res.on("close", () => upstream.destroy());
+	upstream.end(body);
+});
 
 const apiKey = process.env.GEMINI_API_KEY;
 let ai: GoogleGenAI | null = null;

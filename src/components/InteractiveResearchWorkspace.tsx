@@ -53,6 +53,8 @@ interface InteractiveResearchWorkspaceProps {
   onOpenGlossary?: (term?: string) => void;
   onOpenPrinciples?: () => void;
   initialAdvisorQuery?: string;
+  chatSessionId: string | null;
+  onChatSessionChange: (sessionId: string | null) => void;
 }
 
 export const InteractiveResearchWorkspace: React.FC<InteractiveResearchWorkspaceProps> = ({
@@ -67,6 +69,8 @@ export const InteractiveResearchWorkspace: React.FC<InteractiveResearchWorkspace
   onOpenGlossary,
   onOpenPrinciples,
   initialAdvisorQuery = '',
+  chatSessionId,
+  onChatSessionChange,
 }) => {
   const { currentLanguage, activeLanguageInfo, t, translateBriefContent, isTranslating } = useLanguage();
 
@@ -175,6 +179,8 @@ Select any card on the right to inspect sources, examine limitations, or trigger
   );
   const [inputText, setInputText] = useState(initialAdvisorQuery || '');
   const [isSending, setIsSending] = useState(false);
+  const sendingRef = useRef(false);
+  const [chatError, setChatError] = useState<string | null>(null);
   const [isSearchingEvidence, setIsSearchingEvidence] = useState(false);
   const [expandedSourceId, setExpandedSourceId] = useState<string | null>(null);
 
@@ -214,7 +220,9 @@ Select any card on the right to inspect sources, examine limitations, or trigger
 
   const handleSendMessage = async (textToSend?: string) => {
     const query = textToSend || inputText;
-    if (!query.trim() || isSending) return;
+    if (!query.trim() || sendingRef.current) return;
+    sendingRef.current = true;
+    setChatError(null);
 
     const userMsg: ConversationMessage = {
       id: `msg-${Date.now()}`,
@@ -229,25 +237,32 @@ Select any card on the right to inspect sources, examine limitations, or trigger
     setIsSending(true);
 
     try {
-      const res = await fetch('/api/advisor/chat', {
+      const res = await fetch('/api/v1/chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           message: query.trim(),
-          brief,
-          activeCardId,
-          audienceMode,
-          targetLang: currentLanguage,
+          session_id: chatSessionId,
+          research: false,
         }),
       });
 
-      if (!res.ok) throw new Error('Chat API error');
       const data = await res.json();
+      if (!res.ok) {
+        if (res.status === 404 && chatSessionId) onChatSessionChange(null);
+        const detail = typeof data.detail === 'string' ? data.detail : data.error;
+        throw new Error(detail || `Chat API error (${res.status})`);
+      }
+      if (typeof data.reply !== 'string' || !data.reply.trim() || !data.session_id) {
+        throw new Error('Chat API returned an invalid response');
+      }
+      onChatSessionChange(data.session_id);
 
       const advisorMsg: ConversationMessage = {
         id: `msg-adv-${Date.now()}`,
         sender: 'advisor',
         text: data.reply,
+        sources: data.research?.sources,
         timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
         linkedCardId: data.suggestedCardId || activeCardId,
         actionPrompt: data.actionPrompt,
@@ -257,32 +272,11 @@ Select any card on the right to inspect sources, examine limitations, or trigger
       if (data.suggestedCardId && ['problem', 'evidence', 'research_question', 'hypothesis', 'experiment'].includes(data.suggestedCardId)) {
         setActiveCardId(data.suggestedCardId);
       }
-    } catch {
-      // Graceful rich fallback adhering to Section 4 & 5
-      setTimeout(() => {
-        let reply = '';
-        if (query.toLowerCase().includes('contradictory') || query.toLowerCase().includes('counter')) {
-          reply = `Under Evidence Principle #6, we actively seek disconfirming data. In recent MLSys and ICML literature, speculative decoding and parallel prefix caching demonstrate that autoregressive decoders can achieve up to 2.4x speedups under structured label spaces, meaning token-by-token generation is not uniformly fatal under all workloads. We have highlighted this contradictory finding in the Evidence card to ensure your research design does not over-claim novelty.`;
-        } else if (query.toLowerCase().includes('terminology') || query.toLowerCase().includes('simple')) {
-          reply = `Here is the plain-English breakdown:\n• "Autoregressive" means generating text like a typewriter—one letter or token at a time, where each token depends on all previous ones.\n• "Non-Autoregressive" (like ModernBERT) means evaluating the whole sentence in one swift snapshot (like taking a photograph), making classification orders of magnitude faster.\n• "p99 Latency" is the worst-case speed for 99% of requests. In webhooks, if even 1% of requests exceed 100ms, the system times out.`;
-        } else if (query.toLowerCase().includes('clarify') || query.toLowerCase().includes('context')) {
-          reply = `To prevent vague claims, we anchored your investigation into software issue-ticket triaging (e.g., GitHub Issues and Jira incident queues). This provides clear boundaries: single-request webhook arrivals (batch size = 1), noisy stack traces, and rigid SLA bounds (<100ms).`;
-        } else if (query.toLowerCase().includes('revise') || query.toLowerCase().includes('pivot')) {
-          reply = `Defending a direction includes the intellectual courage to revise or abandon it when evidence fails to support it (Principle #7 & #8). If specialized encoders fail to achieve accuracy parity, we can pivot to a "Cascading Hybrid Router" where 90% of routine tickets are triaged in 18ms and only ambiguous edge cases are escalated to the larger model.`;
-        } else {
-          reply = `I have logged this inquiry against Card [${activeCard.title}]. Under Ideally's evidence framework, we verify whether this claim holds under single-GPU capstone constraints. Notice that on the right panel, each source provides explicit methodological summaries, sample scales, and known limitations.`;
-        }
-
-        const fallbackMsg: ConversationMessage = {
-          id: `msg-adv-${Date.now()}`,
-          sender: 'advisor',
-          text: reply,
-          timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-          linkedCardId: activeCardId,
-        };
-        setMessages(prev => [...prev, fallbackMsg]);
-      }, 500);
+    } catch (error) {
+      setChatError(error instanceof Error ? error.message : 'Unable to connect to the chat API');
+      if (!textToSend) setInputText(query);
     } finally {
+      sendingRef.current = false;
       setIsSending(false);
     }
   };
@@ -567,6 +561,18 @@ Select any card on the right to inspect sources, examine limitations, or trigger
                   >
                     <div className="whitespace-pre-line">{m.text}</div>
 
+                    {isAdvisor && m.sources && m.sources.length > 0 && (
+                      <div className="mt-3 space-y-1 border-t border-slate-200 pt-2">
+                        <span className="font-semibold">Sources</span>
+                        {m.sources.filter(source => /^https?:\/\//i.test(source.url)).map(source => (
+                          <a key={source.url} href={source.url} target="_blank" rel="noopener noreferrer"
+                            className="block text-blue-700 underline break-words">
+                            {source.title}
+                          </a>
+                        ))}
+                      </div>
+                    )}
+
                     {isAdvisor && m.actionPrompt && (
                       <div className="mt-2.5 pt-2 border-t border-slate-200/60 flex items-center justify-between">
                         <button
@@ -593,6 +599,12 @@ Select any card on the right to inspect sources, examine limitations, or trigger
             )}
             <div ref={messagesEndRef} />
           </div>
+
+          {chatError && (
+            <div role="alert" className="px-4 py-3 text-xs text-red-700 bg-red-50 border-t border-red-200">
+              {chatError} — Please retry your message.
+            </div>
+          )}
 
           {/* Chat Input */}
           <div className="p-3 border-t border-slate-200 bg-white">

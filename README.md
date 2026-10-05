@@ -220,3 +220,8 @@ Ideally is guided by 10 fundamental tenets of scientific integrity:
 ## 📄 License
 
 This project is licensed under the MIT License.
+
+## Cloud Run backend
+
+Dockerfile hiện chạy cả Express và FastAPI trong cùng container.
+Hướng dẫn deploy, secrets và database: [docs/cloud-run.md](docs/cloud-run.md).

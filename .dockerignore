@@ -4,3 +4,16 @@ dist
 .env
 .env.local
 *.log
+
+**/.env
+**/.env.*
+!**/.env.example
+**/.venv
+**/__pycache__
+**/.pytest_cache
+**/.ruff_cache
+**/*.db
+**/*.db-*
+.agents
+.codex
+.aws

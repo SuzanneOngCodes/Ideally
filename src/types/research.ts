@@ -182,6 +182,7 @@ export interface ConversationMessage {
   timestamp: string;
   linkedCardId?: 'problem' | 'evidence' | 'research_question' | 'hypothesis' | 'experiment';
   actionPrompt?: string;
+  sources?: { title: string; url: string }[];
 }
 
 export interface ResearchBrief {
