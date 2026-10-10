@@ -796,7 +796,7 @@ export const SmartSearchLanding: React.FC<SmartSearchLandingProps> = ({ onRoute,
 										}
 									}}
 									placeholder={content.placeholder}
-									className='w-full text-slate-900 text-base sm:text-lg placeholder:text-slate-400 bg-transparent focus:outline-none resize-none min-h-[28px] max-h-[200px] overflow-y-auto py-0.5 line-height-normal'
+									className='w-full text-slate-900 text-base sm:text-lg placeholder:text-slate-400 bg-transparent focus:outline-none resize-none min-h-[28px] max-h-[200px] overflow-x-hidden overflow-y-hidden py-0.5 line-height-normal'
 									autoFocus
 									onKeyDown={(e) => {
 										// Submits the form on Enter, but allows new lines with Shift + Enter
