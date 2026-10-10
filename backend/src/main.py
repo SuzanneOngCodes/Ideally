@@ -7,6 +7,8 @@ from sqlalchemy import text
 from src.core.agent import AgentService
 from src.core.config import Settings, get_settings
 from src.core.logger import configure_logging
+from src.modules.auditor.router import router as auditor_router
+from src.modules.auditor.service import CitationAuditService
 from src.modules.chat.router import router as chat_router
 from src.modules.research.router import router as research_router
 from src.modules.session.router import router as session_router
@@ -27,6 +29,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app = FastAPI(title=settings.app_name, lifespan=lifespan)
     app.state.db_factory = db_factory
     app.state.agent = AgentService(settings)
+    app.state.auditor = CitationAuditService(settings)
     app.add_middleware(
         CORSMiddleware,
         allow_origins=settings.cors_origins,
@@ -34,6 +37,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         allow_headers=["Content-Type"],
     )
     app.include_router(chat_router, prefix="/api/v1")
+    app.include_router(auditor_router, prefix="/api/v1")
     app.include_router(session_router, prefix="/api/v1")
     app.include_router(research_router, prefix="/api/v1")
 
@@ -41,7 +45,10 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     def health(request: Request):
         with request.app.state.db_factory() as db:
             db.execute(text("SELECT 1"))
-        return {"status": "ok", "ai_configured": bool(settings.google_api_key.get_secret_value())}
+        return {
+            "status": "ok",
+            "ai_configured": bool(settings.google_api_key.get_secret_value()),
+        }
 
     return app
 
