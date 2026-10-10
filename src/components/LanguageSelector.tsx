@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect } from "react";
-import { Globe, Check, ChevronDown, Sparkles, Languages } from "lucide-react";
+import { Check, ChevronDown, Languages } from "lucide-react";
 import { useLanguage } from "../context/LanguageContext";
 import { LanguageCode, APAC_LANGUAGES } from "../types/i18n";
 
@@ -32,52 +32,50 @@ export const LanguageSelector: React.FC = () => {
 			</button>
 
 			{isOpen && (
-				<div className='absolute right-0 mt-1.5 w-72 bg-white rounded-xl shadow-xl border border-slate-200 py-2 z-50 animate-in fade-in zoom-in-95 duration-150'>
+				<div className='fixed left-1/2 -translate-x-1/2 top-auto mt-1.5 right-0 mt-1.5 w-[calc(100vw-1rem)] max-w-80 sm:absolute sm:left-auto sm:right-0 sm:translate-x-0 sm:w-80 bg-white rounded-xl shadow-xl border border-slate-200 z-50 flex flex-col max-h-[calc(100dvh-5rem)] animate-in fade-in zoom-in-95 duration-150 overflow-hidden'>
 					{/* Header */}
-					<div className='px-3.5 py-2 border-b border-slate-100'>
-						<div className='flex items-center justify-between'>
-							<div className='flex items-center gap-1.5'>
-								<Languages className='w-4 h-4 text-indigo-600' />
+					<div className='px-3.5 py-2.5 border-b border-slate-100 shrink-0'>
+						<div className='flex items-center justify-between gap-2'>
+							<div className='flex items-center gap-1.5 min-w-0'>
+								<Languages className='w-4 h-4 text-indigo-600 shrink-0' />
+
 								<span className='text-xs font-bold text-slate-900'>Languages</span>
 							</div>
-							<span className='text-[10px] font-semibold text-indigo-600 bg-indigo-50 px-1.5 py-0.5 rounded'>Cloud Translation</span>
+
+							<span className='text-[10px] font-semibold text-indigo-600 bg-indigo-50 px-1.5 py-0.5 rounded shrink-0'>Cloud Translation</span>
 						</div>
-						<p className='text-[11px] text-slate-500 mt-0.5'>High-fidelity scholarly localization for Japan & APAC Regions</p>
+
+						<p className='text-[11px] text-slate-500 mt-1 leading-relaxed'>High-fidelity scholarly localization for Japan & APAC Regions</p>
 					</div>
 
 					{/* Language Options List */}
-					<div className='py-1 max-h-80 overflow-y-auto'>
+					<div className='py-1 flex-1 min-h-0 overflow-y-auto overscroll-contain'>
 						{APAC_LANGUAGES.map((lang) => {
 							const isSelected = lang.code === currentLanguage;
+
 							return (
-								<button key={lang.code} onClick={() => handleSelect(lang.code)} className={`w-full text-left px-3.5 py-2 text-xs flex items-center justify-between transition-colors ${isSelected ? "bg-indigo-50/80 text-indigo-950 font-semibold" : "hover:bg-slate-50 text-slate-700"}`}>
-									<div className='flex items-center gap-2.5'>
-										<span className='text-base leading-none'>{lang.flag}</span>
-										<div>
+								<button key={lang.code} type='button' onClick={() => handleSelect(lang.code)} aria-pressed={isSelected} className={`w-full text-left px-3.5 py-2.5 text-xs flex items-center justify-between gap-3 transition-colors ${isSelected ? "bg-indigo-50/80 text-indigo-950 font-semibold" : "hover:bg-slate-50 text-slate-700"}`}>
+									{/* Language Name and Flag */}
+									<div className='flex items-center gap-2.5 min-w-0 flex-1'>
+										<span className='text-base leading-none shrink-0'>{lang.flag}</span>
+
+										<div className='min-w-0 flex-1'>
 											<div className='flex items-center gap-1.5'>
-												<span className='text-slate-900 font-medium'>{lang.nativeName}</span>
-												{/* {lang.code === "ja" && <span className='text-[9px] font-bold text-rose-700 bg-rose-50 px-1 rounded border border-rose-200'>Japan</span>} */}
+												<span className='text-slate-900 font-medium break-words'>{lang.nativeName}</span>
 											</div>
-											<div className='text-[10px] text-slate-400'>
+
+											<div className='text-[10px] text-slate-400 break-words mt-0.5'>
 												{lang.name} • {lang.country}
 											</div>
 										</div>
 									</div>
 
-									{isSelected && <Check className='w-4 h-4 text-indigo-600 shrink-0' />}
+									{/* Selected Indicator */}
+									{isSelected && <Check className='w-4 h-4 text-indigo-600 shrink-0' aria-hidden='true' />}
 								</button>
 							);
 						})}
 					</div>
-
-					{/* Footer note
-          <div className="px-3.5 pt-2 mt-1 border-t border-slate-100 flex items-center justify-between text-[10px] text-slate-400">
-            <span className="flex items-center gap-1">
-              <Sparkles className="w-3 h-3 text-amber-500" />
-              <span>Google Cloud Translation Active</span>
-            </span>
-            <span className="text-slate-300">v2 REST / GenAI</span>
-          </div> */}
 				</div>
 			)}
 		</div>

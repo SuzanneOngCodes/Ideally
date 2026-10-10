@@ -1,452 +1,15 @@
-import React, { useState, useMemo, useEffect } from "react";
+import React, { useState, useMemo, useEffect, useRef } from "react";
 import { Search, ArrowRight, ShieldCheck, FileText, Compass, ChevronRight, FolderOpen, Sparkles, CheckCircle2, X } from "lucide-react";
 import { useLanguage } from "../context/LanguageContext";
 import { LanguageCode } from "../types/i18n";
 import { PRESET_SCENARIOS, PresetScenario } from "../data/presetScenarios";
-
-export interface IntentRoutingResult {
-	targetTab: "workspace" | "brief" | "defense" | "auditor";
-	label: string;
-	tagline: string;
-	reason: string;
-	matchedKeywords: string[];
-}
+import { classifyResearchIntent } from "../utils/classifyResearchIntent";
 
 interface SmartSearchLandingProps {
 	onRoute: (destination: "workspace" | "brief" | "defense" | "auditor", query: string) => void;
 	onSelectPreset: (preset: PresetScenario) => void;
 	onNewIntake: () => void;
 	onOpenMethodology: () => void;
-}
-
-// Multilingual Intent Classification
-export function classifyResearchIntent(input: string, lang: LanguageCode = "en"): IntentRoutingResult {
-	const text = (input || "").trim().toLowerCase();
-
-	if (!text) {
-		const defaultLabels: Record<LanguageCode, { label: string; tagline: string; reason: string }> = {
-			en: {
-				label: "Interactive Workspace",
-				tagline: "Socratic dialogue & live 5-card reasoning chain",
-				reason: "Explore problems, compare candidate directions, and ground claims with literature.",
-			},
-			ja: {
-				label: "対話型ワークスペース",
-				tagline: "ソクラテス式アドバイザー対話と5段階の論理展開チェーン",
-				reason: "研究課題の探究、アプローチ比較、先行文献とのエビデンス照合を行います。",
-			},
-			"zh-CN": {
-				label: "交互式研究工作区",
-				tagline: "苏格拉底式导师对话与5张核心推理逻辑卡片",
-				reason: "系统性探索研究瓶颈、权衡候选技术路径并核查核心文献依据。",
-			},
-			"zh-TW": {
-				label: "互動式研究工作區",
-				tagline: "蘇格拉底式導師對話與5張核心推理邏輯卡片",
-				reason: "系統性探索研究瓶頸、權衡候選技術路徑並核查核心文獻依據。",
-			},
-			ko: {
-				label: "인터랙티브 워크스페이스",
-				tagline: "소크라테스식 연구 자문과 5단계 추론 체인 캔버스",
-				reason: "연구 문제 구체화, 후보 방법론 비교 분석 및 학술 문헌 검증을 수행합니다.",
-			},
-			id: {
-				label: "Ruang Kerja Interaktif",
-				tagline: "Dialog Sokrates dan rantai penalaran 5 kartu terarah",
-				reason: "Eksplorasi masalah penelitian, analisis komparatif, dan verifikasi literatur primer.",
-			},
-			vi: {
-				label: "Không Gian Nghiên Cứu Tương Tác",
-				tagline: "Đối thoại Socrates và chuỗi lập luận 5 thẻ khoa học",
-				reason: "Khám phá vấn đề nghiên cứu, so sánh các hướng tiếp cận và đối chiếu tài liệu.",
-			},
-			th: {
-				label: "พื้นที่ทำงานเชิงโต้ตอบ",
-				tagline: "การสนทนาแบบโสเครตีสและแผนผังเหตุผล 5 ขั้นตอน",
-				reason: "สำรวจปัญหาการวิจัย เปรียบเทียบแนวทางที่เป็นไปได้ และตรวจสอบวรรณกรรมหลัก",
-			},
-		};
-
-		const def = defaultLabels[lang] || defaultLabels.en;
-		return {
-			targetTab: "workspace",
-			label: def.label,
-			tagline: def.tagline,
-			reason: def.reason,
-			matchedKeywords: [],
-		};
-	}
-
-	// 1. Evidence & Citation Auditor Patterns (EN, JA, ZH, KO, ID, VI, TH)
-	const auditorPatterns = [
-		// English
-		"audit",
-		"citation",
-		"cite",
-		"reference",
-		"hallucinat",
-		"slop",
-		"fake",
-		"phantom",
-		"doi",
-		"arxiv check",
-		"check sources",
-		"crossref",
-		"attribution drift",
-		"verify claim",
-		"fact-check",
-		"plagiarism",
-		"fabricat",
-		"invented citation",
-		"anti-slop",
-		// Japanese
-		"引用",
-		"監査",
-		"参考文献",
-		"ハルシネーション",
-		"捏造",
-		"架空の引用",
-		"ファクトチェック",
-		"doi検証",
-		// Chinese (Simplified & Traditional)
-		"引文",
-		"审计",
-		"查重",
-		"虚假引用",
-		"学术幻觉",
-		"伪造",
-		"文献核查",
-		"虚构引用",
-		"学术不端",
-		// Korean
-		"인용",
-		"감사",
-		"참고문헌",
-		"환각",
-		"위조",
-		"허위 인용",
-		"팩트체크",
-		"출처 검증",
-		// Indonesian
-		"sitasi",
-		"rujukan",
-		"palsu",
-		"halusinasi",
-		"fabrikasi",
-		"cek sumber",
-		// Vietnamese
-		"trích dẫn",
-		"tài liệu tham khảo",
-		"ảo giác",
-		"ngụy tạo",
-		"kiểm chứng",
-		// Thai
-		"อ้างอิง",
-		"การอ้างอิงหลอน",
-		"ตรวจสอบเอกสาร",
-		"ความถูกต้อง",
-	];
-	const matchedAuditor = auditorPatterns.filter((p) => text.includes(p));
-	const hasCitationSyntax = /([a-z]+ et al\.?|\([1-9][0-9]?\)|doi\.org|arxiv:\d)/i.test(text);
-
-	if (matchedAuditor.length > 0 || hasCitationSyntax) {
-		return {
-			targetTab: "auditor",
-			label: "Evidence & Citation Auditor",
-			tagline: "DOI verification, phantom citation scan & anti-slop audit",
-			reason: "Detected citation verification, hallucinated reference scan, or draft integrity audit.",
-			matchedKeywords: matchedAuditor,
-		};
-	}
-
-	// 2. Patent & Intellectual Property Ideas (EN, JA, ZH, KO, ID, VI, TH)
-	const patentPatterns = [
-		// English
-		"patent",
-		"prior art",
-		"inventive step",
-		"non-obvious",
-		"non obvious",
-		"patent examiner",
-		"patent claim",
-		"office action",
-		"intellectual property",
-		"novelty search",
-		"freedom to operate",
-		"patent idea",
-		"patentability",
-		"35 u.s.c",
-		// Japanese
-		"特許",
-		"先行技術",
-		"進歩性",
-		"非自明",
-		"特許審査官",
-		"請求項",
-		"クレーム",
-		"知財",
-		"特許性",
-		"出願",
-		// Chinese
-		"专利",
-		"先验技术",
-		"先前技术",
-		"创造性",
-		"发明性",
-		"非显而易见",
-		"专利审查员",
-		"权利要求",
-		"查新",
-		"知识产权",
-		// Korean
-		"특허",
-		"선행기술",
-		"진보성",
-		"비자명성",
-		"특허심사관",
-		"청구항",
-		"지식재산",
-		"특허성",
-		"출원",
-		// Indonesian
-		"paten",
-		"teknologi sebelumnya",
-		"langkah inventif",
-		"klaim paten",
-		"pemeriksa paten",
-		"kekayaan intelektual",
-		// Vietnamese
-		"bằng sáng chế",
-		"sáng chế",
-		"nghệ thuật trước",
-		"bước sáng tạo",
-		"yêu cầu bảo hộ",
-		"thẩm định viên",
-		// Thai
-		"สิทธิบัตร",
-		"ความใหม่",
-		"ขั้นการประดิษฐ์",
-		"ผู้ตรวจสอบสิทธิบัตร",
-		"ข้อถือสิทธิ",
-		"ทรัพย์สินทางปัญญา",
-	];
-	const matchedPatent = patentPatterns.filter((p) => text.includes(p));
-	if (matchedPatent.length > 0) {
-		if (text.includes("audit") || text.includes("citation") || text.includes("ids") || text.includes("verify") || text.includes("引用") || text.includes("인용") || text.includes("sitasi")) {
-			return {
-				targetTab: "auditor",
-				label: "Citation & Prior-Art Auditor",
-				tagline: "Prior-art verification & Information Disclosure Statement (IDS) integrity",
-				reason: "Detected patent prior-art audit: verifying references against published patents and literature.",
-				matchedKeywords: matchedPatent,
-			};
-		}
-		if (text.includes("brief") || text.includes("draft") || text.includes("spec") || text.includes("claims") || text.includes("proposal") || text.includes("提案") || text.includes("計画") || text.includes("제안")) {
-			return {
-				targetTab: "brief",
-				label: "Proposal & Patent Specification",
-				tagline: "Technical disclosure, claims architecture & reduction-to-practice protocol",
-				reason: "Detected patent idea specification: drafting technical claims, mechanisms, and benchmark validation.",
-				matchedKeywords: matchedPatent,
-			};
-		}
-		if (text.includes("stress") || text.includes("examiner") || text.includes("obvious") || text.includes("reject") || text.includes("defend") || text.includes("test") || text.includes("審査官") || text.includes("進歩性") || text.includes("创造性") || text.includes("심사관") || text.includes("진보성")) {
-			return {
-				targetTab: "defense",
-				label: "Defense Lab (Patent Examiner)",
-				tagline: "35 U.S.C. § 102/103 Novelty & Non-Obviousness Defense",
-				reason: "Detected patent claim stress-test: defending against simulated Patent Examiner 102/103 prior-art rejections.",
-				matchedKeywords: matchedPatent,
-			};
-		}
-		return {
-			targetTab: "workspace",
-			label: "Interactive Workspace (Patent Novelty)",
-			tagline: "Prior-art differentiation & inventive step formulation",
-			reason: "Detected patent ideation: mapping technical delta from known prior art and establishing inventive step.",
-			matchedKeywords: matchedPatent,
-		};
-	}
-
-	// 3. Socratic Defense Lab (Reviewer #2, Committee Grilling, Rebuttal)
-	const defensePatterns = [
-		// English
-		"defense",
-		"defend",
-		"reviewer",
-		"reviewer 2",
-		"reviewer #2",
-		"committee",
-		"grill",
-		"stress-test",
-		"stress test",
-		"counter-argument",
-		"counterargument",
-		"challenge",
-		"rebuttal",
-		"critique",
-		"vulnerability",
-		"probe",
-		"flaw",
-		"confounding",
-		"threat to validity",
-		"falsifi",
-		"p-value",
-		"refute",
-		// Japanese
-		"ディフェンス",
-		"口頭試問",
-		"防衛",
-		"査読者",
-		"査読",
-		"反論",
-		"反証",
-		"突っ込み",
-		"批判",
-		"ストレステスト",
-		"交絡因子",
-		// Chinese
-		"答辩",
-		"口试",
-		"答辩委员会",
-		"评审人",
-		"审稿人",
-		"二审",
-		"反驳",
-		"辩护",
-		"压力测试",
-		"混淆变量",
-		"反例",
-		// Korean
-		"디펜스",
-		"구두시험",
-		"논문심사",
-		"심사위원",
-		"리뷰어2",
-		"반론",
-		"반박",
-		"비판",
-		"스트레스테스트",
-		"교란변수",
-		// Indonesian
-		"pertahanan",
-		"sidang",
-		"penguji",
-		"rebuttal",
-		"sanggahan",
-		"kritik",
-		"bantahan",
-		// Vietnamese
-		"phản biện",
-		"bảo vệ luận án",
-		"hội đồng",
-		"phản biện 2",
-		"bác bỏ",
-		"chất vấn",
-		// Thai
-		"แก้ต่าง",
-		"ป้องกันวิทยานิพนธ์",
-		"กรรมการ",
-		"ผู้ประเมิน",
-		"ข้อโต้แย้ง",
-		"การซักค้าน",
-	];
-	const matchedDefense = defensePatterns.filter((p) => text.includes(p));
-
-	if (matchedDefense.length > 0) {
-		return {
-			targetTab: "defense",
-			label: "Socratic Defense Lab",
-			tagline: "Reviewer #2 simulation & methodological stress-testing",
-			reason: "Detected hypothesis stress-testing or Reviewer #2 adversarial critique.",
-			matchedKeywords: matchedDefense,
-		};
-	}
-
-	// 4. Proposal Brief View (Synthesis, Protocol, Milestones)
-	const briefPatterns = [
-		// English
-		"brief",
-		"proposal",
-		"grant",
-		"milestone",
-		"timeline",
-		"experiment design",
-		"protocol",
-		"bibtex",
-		"full plan",
-		"research plan",
-		"methodology document",
-		"capstone plan",
-		"thesis plan",
-		"generate proposal",
-		"export brief",
-		"5-stage",
-		// Japanese
-		"提案書",
-		"計画書",
-		"研究計画",
-		"助成金申請",
-		"プロトコル",
-		"概要書",
-		"マイルストーン",
-		"bibtex",
-		// Chinese
-		"提案",
-		"简报",
-		"计划书",
-		"开题报告",
-		"实验设计",
-		"研究方案",
-		"科研立项",
-		"里程碑",
-		// Korean
-		"제안서",
-		"계획서",
-		"연구계획",
-		"실험설계",
-		"마일스톤",
-		"지원서",
-		"프로토콜",
-		// Indonesian
-		"proposal",
-		"rencana penelitian",
-		"protokol eksperimen",
-		"tonggak capaian",
-		// Vietnamese
-		"đề cương",
-		"đề xuất nghiên cứu",
-		"kế hoạch thí nghiệm",
-		"nghị định thư",
-		// Thai
-		"ข้อเสนอโครงการ",
-		"แผนวิจัย",
-		"การออกแบบการทดลอง",
-		"กำหนดเวลา",
-	];
-	const matchedBrief = briefPatterns.filter((p) => text.includes(p));
-
-	if (matchedBrief.length > 0) {
-		return {
-			targetTab: "brief",
-			label: "Structured Proposal Brief",
-			tagline: "5-stage scientific brief, trade-off matrix & BibTeX export",
-			reason: "Detected proposal synthesis, experimental protocol, or research brief request.",
-			matchedKeywords: matchedBrief,
-		};
-	}
-
-	// 5. Default: Interactive Research Workspace
-	const workspacePatterns = ["workspace", "explore", "trade-off", "tradeoff", "problem", "hypothesis", "gap", "literature", "reasoning", "socratic", "investigate", "compare", "direction", "benchmark", "how to", "what if", "課題", "仮説", "先行研究", "トレードオフ", "探索", "研究問題", "问题", "假设", "权衡", "文献调研", "探索", "문제", "가설", "트레이드오프", "문헌조사", "탐구"];
-	const matchedWorkspace = workspacePatterns.filter((p) => text.includes(p));
-
-	return {
-		targetTab: "workspace",
-		label: "Interactive Workspace",
-		tagline: "Socratic dialogue & live 5-card reasoning chain",
-		reason: "Detected research problem exploration, literature gap analysis, or advisor dialogue.",
-		matchedKeywords: matchedWorkspace,
-	};
 }
 
 const TYPING_STATEMENTS_BY_LANG: Record<LanguageCode, string[]> = {
@@ -497,6 +60,7 @@ const SUBTITLE_AFFIXES_BY_LANG: Record<LanguageCode, { prefix: string; suffix: s
 
 export const SmartSearchLanding: React.FC<SmartSearchLandingProps> = ({ onRoute, onSelectPreset, onNewIntake, onOpenMethodology }) => {
 	const { currentLanguage } = useLanguage();
+	const textareaRef = useRef<HTMLTextAreaElement>(null);
 	const [query, setQuery] = useState("");
 	const [manualOverride, setManualOverride] = useState<"workspace" | "brief" | "defense" | "auditor" | null>(null);
 
@@ -1208,35 +772,61 @@ export const SmartSearchLanding: React.FC<SmartSearchLandingProps> = ({ onRoute,
 					<div className='bg-white rounded-2xl sm:rounded-3xl border-2 border-slate-300 hover:border-slate-400 focus-within:border-slate-900 focus-within:ring-4 focus-within:ring-slate-900/10 transition-all shadow-md sm:shadow-lg overflow-hidden'>
 						{/* Input Row */}
 						<div className='flex flex-col sm:flex-row items-stretch sm:items-center p-2.5 sm:p-3.5 gap-3'>
-							<div className='flex items-center flex-1 px-2 gap-3 min-h-[48px]'>
-								<Search className='w-5 h-5 sm:w-6 sm:h-6 text-slate-400 shrink-0' />
-								<input
-									type='text'
+							<div className='flex items-start flex-1 px-2 gap-3 min-h-[48px] py-1.5'>
+								{/* Aligned search icon to the top-start so it stays aligned when container grows */}
+								<Search className='w-5 h-5 sm:w-6 sm:h-6 text-slate-400 shrink-0 mt-1' />
+
+								<textarea
+									rows={1}
 									value={query}
 									onChange={(e) => {
 										setQuery(e.target.value);
 										setManualOverride(null);
+
+										// Dynamic auto-resize logic
+										e.target.style.height = "auto";
+										e.target.style.height = `${e.target.scrollHeight}px`;
+									}}
+									ref={(el) => {
+										textareaRef.current = el;
+										// Hook to trigger initial height check for the long placeholder on mount
+										if (el && !query) {
+											el.style.height = "auto";
+											el.style.height = `${el.scrollHeight}px`;
+										}
 									}}
 									placeholder={content.placeholder}
-									className='w-full text-slate-900 text-base sm:text-lg placeholder:text-slate-400 bg-transparent focus:outline-none py-1'
+									className='w-full text-slate-900 text-base sm:text-lg placeholder:text-slate-400 bg-transparent focus:outline-none resize-none min-h-[28px] max-h-[200px] overflow-y-auto py-0.5 line-height-normal'
 									autoFocus
+									onKeyDown={(e) => {
+										// Submits the form on Enter, but allows new lines with Shift + Enter
+										if (e.key === "Enter" && !e.shiftKey) {
+											e.preventDefault();
+											e.currentTarget.form?.requestSubmit();
+										}
+									}}
 								/>
+
 								{query.trim() && (
 									<button
 										type='button'
-										onClick={() => {
+										onClick={(e) => {
 											setQuery("");
 											setManualOverride(null);
+											// Find the textarea to reset its height back to default
+											if (textareaRef.current) {
+												textareaRef.current.style.height = "auto";
+											}
 										}}
-										className='p-1.5 text-slate-400 hover:text-slate-600 rounded-full hover:bg-slate-100 transition-colors cursor-pointer'
+										className='p-1.5 text-slate-400 hover:text-slate-600 rounded-full hover:bg-slate-100 transition-colors cursor-pointer shrink-0 mt-0.5'
 										aria-label='Clear query'>
 										<X className='w-4 h-4' />
 									</button>
 								)}
 							</div>
 
-							{/* Action Button: Full-width on mobile for easy finger tap, inline on desktop */}
-							<button type='submit' className='w-full sm:w-auto px-6 py-3.5 sm:py-3 bg-slate-900 hover:bg-slate-800 active:scale-98 text-white rounded-xl sm:rounded-2xl text-sm sm:text-base font-semibold transition-all flex items-center justify-center gap-2 shrink-0 shadow-sm cursor-pointer min-h-[44px]'>
+							{/* Action Button */}
+							<button type='submit' className='w-full sm:w-auto px-6 py-3.5 sm:py-3 bg-slate-900 hover:bg-slate-800 active:scale-98 text-white rounded-xl sm:rounded-2xl text-sm sm:text-base font-semibold transition-all flex items-center justify-center gap-2 shrink-0 shadow-sm cursor-pointer min-h-[44px] self-end sm:self-center'>
 								<span>
 									{content.launchPrefix} {currentDestinationInfo?.label || "Advisor"}
 								</span>
@@ -1260,7 +850,7 @@ export const SmartSearchLanding: React.FC<SmartSearchLandingProps> = ({ onRoute,
 					</div>
 				</form>
 
-				{/* Destination Overrides: Spacious 4-Card Grid on Mobile and Desktop */}
+				{/* Destination Overrides */}
 				<div className='mt-6'>
 					<div className='flex items-center justify-between mb-3 px-1'>
 						<span className='text-xs font-bold uppercase tracking-wider text-slate-500'>{content.chooseLab}</span>
