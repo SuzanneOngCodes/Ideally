@@ -24,13 +24,9 @@ if (!["http:", "https:"].includes(pythonBackendUrl.protocol)) {
 }
 
 app.use(["/api/v1", "/api/backend/health"], (req, res) => {
-	const upstreamPath = req.path === "/" && req.baseUrl === "/api/backend/health"
-		? "/health"
-		: req.originalUrl;
+	const upstreamPath = req.path === "/" && req.baseUrl === "/api/backend/health" ? "/health" : req.originalUrl;
 	const target = new URL(upstreamPath, pythonBackendUrl);
-	const body = req.body !== undefined && !["GET", "HEAD"].includes(req.method)
-		? JSON.stringify(req.body)
-		: undefined;
+	const body = req.body !== undefined && !["GET", "HEAD"].includes(req.method) ? JSON.stringify(req.body) : undefined;
 	const headers: http.OutgoingHttpHeaders = { accept: req.headers.accept || "application/json" };
 	if (body !== undefined) {
 		headers["content-type"] = "application/json";
@@ -638,9 +634,7 @@ Analyze the defense response. Return JSON with:
 
 	// Generate 3 novel defense probes for the brief
 	try {
-		const isPatentTopic = /patent|prior art|claim|inventive|intellectual property|35 u\.?s\.?c/i.test(
-			`${brief.title} ${brief.intake?.problemOrObservation || ""} ${brief.experimentDesign?.falsifiableHypothesis || ""}`
-		);
+		const isPatentTopic = /patent|prior art|claim|inventive|intellectual property|35 u\.?s\.?c/i.test(`${brief.title} ${brief.intake?.problemOrObservation || ""} ${brief.experimentDesign?.falsifiableHypothesis || ""}`);
 
 		const probeGenPrompt = `
 You are an Academic & Patent Defense Advisory Committee grilling a researcher/inventor on their proposal:
@@ -944,8 +938,29 @@ function performLocalIntegrityAudit(text: string, domain: string = "General Acad
 	};
 }
 
-// Route: Evidence, False Citation & AI Slop Auditor
+// Route: Evidence, False Citation & AI Slop Auditor. Forward the auditor API to FastAPI while retaining its existing public route.
 app.post("/api/advisor/audit-citations", async (req, res) => {
+	try {
+		const response = await fetch(new URL("/api/v1/advisor/audit-citations", pythonBackendUrl), {
+			method: "POST",
+			headers: { "Content-Type": "application/json", Accept: "application/json" },
+			body: JSON.stringify(req.body ?? {}),
+			signal: AbortSignal.timeout(180_000),
+		});
+		const responseBody = await response.text();
+		const contentType = response.headers.get("content-type");
+		if (contentType) res.setHeader("content-type", contentType);
+		res.status(response.status).send(responseBody);
+	} catch (err: any) {
+		const timedOut = err?.name === "TimeoutError" || err?.name === "AbortError";
+		res.status(timedOut ? 504 : 502).json({
+			error: timedOut ? "Auditor backend request timed out" : "Auditor backend unavailable",
+		});
+	}
+});
+
+// Route: Evidence, False Citation & AI Slop Auditor
+app.post("/api/advisor/audit-citations-legacy", async (req, res) => {
 	const { text, brief, domain } = req.body;
 	const targetText = text || (brief ? `${brief.title}\n\n${brief.problemValidation.coreProblemStatement}\n\n${brief.knowledgeLandscape.criticalKnowledgeGap}\n\n${brief.experimentDesign.falsifiableHypothesis}` : "");
 
