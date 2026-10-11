@@ -199,7 +199,7 @@ export const SmartSearchLanding: React.FC<SmartSearchLandingProps> = ({ onRoute,
 			},
 			prompts: [
 				{
-					title: "Patent Claim Non-Obviousness (§ 103)",
+					title: "Test a patent idea in crytography",
 					dest: "defense",
 					query: "Test my patent idea: Can an examiner reject our embedded NTT cryptographic accelerator under 35 U.S.C. 103 as an obvious combination of prior art?",
 					targetName: "Patent Examiner Lab",

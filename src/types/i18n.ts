@@ -6,7 +6,6 @@ export interface ApacLanguage {
 	nativeName: string;
 	flag: string;
 	region: "Japan" | "East Asia" | "Southeast Asia" | "Global";
-	country: string;
 	script: string;
 }
 
@@ -17,7 +16,6 @@ export const APAC_LANGUAGES: ApacLanguage[] = [
 		nativeName: "English",
 		flag: "🌐",
 		region: "Global",
-		country: "International",
 		script: "Latin",
 	},
 	{
@@ -26,7 +24,6 @@ export const APAC_LANGUAGES: ApacLanguage[] = [
 		nativeName: "日本語",
 		flag: "🇯🇵",
 		region: "Japan",
-		country: "Japan (日本)",
 		script: "Kanji / Kana",
 	},
 	{
@@ -35,7 +32,6 @@ export const APAC_LANGUAGES: ApacLanguage[] = [
 		nativeName: "简体中文",
 		flag: "🇨🇳",
 		region: "East Asia",
-		country: "China / Singapore (中国 / 新加坡)",
 		script: "Simplified Hanzi",
 	},
 	{
@@ -44,7 +40,6 @@ export const APAC_LANGUAGES: ApacLanguage[] = [
 		nativeName: "繁體中文",
 		flag: "🇹🇼",
 		region: "East Asia",
-		country: "Taiwan / Hong Kong (台灣 / 香港)",
 		script: "Traditional Hanzi",
 	},
 	{
@@ -53,7 +48,6 @@ export const APAC_LANGUAGES: ApacLanguage[] = [
 		nativeName: "한국어",
 		flag: "🇰🇷",
 		region: "East Asia",
-		country: "South Korea (대한민국)",
 		script: "Hangul",
 	},
 	{
@@ -62,7 +56,6 @@ export const APAC_LANGUAGES: ApacLanguage[] = [
 		nativeName: "Bahasa Indonesia",
 		flag: "🇮🇩",
 		region: "Southeast Asia",
-		country: "Indonesia",
 		script: "Latin",
 	},
 	{
@@ -71,7 +64,6 @@ export const APAC_LANGUAGES: ApacLanguage[] = [
 		nativeName: "Tiếng Việt",
 		flag: "🇻🇳",
 		region: "Southeast Asia",
-		country: "Vietnam (Việt Nam)",
 		script: "Quốc Ngữ",
 	},
 	{
@@ -80,7 +72,6 @@ export const APAC_LANGUAGES: ApacLanguage[] = [
 		nativeName: "ภาษาไทย",
 		flag: "🇹🇭",
 		region: "Southeast Asia",
-		country: "Thailand (ประเทศไทย)",
 		script: "Thai Script",
 	},
 ];

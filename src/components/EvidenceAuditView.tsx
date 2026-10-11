@@ -2,33 +2,41 @@ import React, { useState } from "react";
 import { ShieldAlert, ShieldCheck, Search, Sparkles, ExternalLink, Check, Copy, Loader2, Zap, BookOpen, Gauge, FileWarning } from "lucide-react";
 import { EvidenceAuditReport, ResearchBrief, HallucinationRisk } from "../types/research";
 import { renderScholarlyText } from "../utils/textFormat";
+import { useLanguage } from "../context/LanguageContext";
+import { copyToClipboard } from "../utils/clipboard";
 
 interface EvidenceAuditViewProps {
 	brief: ResearchBrief;
 	onAuditText: (text: string) => Promise<EvidenceAuditReport>;
 	initialCustomText?: string;
+	onNotify?: (message: string) => void;
 }
 
-export const EvidenceAuditView: React.FC<EvidenceAuditViewProps> = ({ brief, onAuditText, initialCustomText = "" }) => {
+export const EvidenceAuditView: React.FC<EvidenceAuditViewProps> = ({ brief, onAuditText, initialCustomText = "", onNotify }) => {
+	const { t } = useLanguage();
 	const [activeTab, setActiveTab] = useState<"brief" | "custom">(initialCustomText ? "custom" : "brief");
 	const [customText, setCustomText] = useState<string>(initialCustomText);
 	const [report, setReport] = useState<EvidenceAuditReport | null>(null);
 	const [isLoading, setIsLoading] = useState<boolean>(false);
 	const [copiedRewrite, setCopiedRewrite] = useState<boolean>(false);
 	const [selectedSnippet, setSelectedSnippet] = useState<string | null>(null);
+	const [statusNotification, setStatusNotification] = useState<string | null>(null);
 
-	// Demo test snippets
+	// Demo test snippets with localized labels
 	const demoSnippets = [
 		{
-			label: "AI Slop & Phantom Citation (Trap)",
+			label: t("auditorTrap1Title"),
+			badge: t("auditorTrap1Badge"),
 			text: `In this study, we delve into the multifaceted tapestry of next-generation artificial intelligence. Neural models play a pivotal role in revolutionizing the paradigm of modern healthcare. As demonstrated by Smith et al. (2024) in their landmark quantum-transformer benchmark, our approach seamlessly integrates into clinical pipelines and stands as a testament to the power of automated diagnosis.`,
 		},
 		{
-			label: "Attribution Drift (Real paper, false claim)",
+			label: t("auditorTrap2Title"),
+			badge: t("auditorTrap2Badge"),
 			text: `Recent advances in sequence modeling have solved real-time embedded latency. Notably, Vaswani et al. (2017) empirically proved that multi-head attention executes with less than 2KB of dynamic RAM overhead on ARM Cortex-M4 microcontrollers, achieving zero timing side-channel leakage across all evaluated cryptographic testbeds.`,
 		},
 		{
-			label: "Rigorous Empirical Prose (Clean)",
+			label: t("auditorTrap3Title"),
+			badge: t("auditorTrap3Badge"),
 			text: `Under non-stationary hospital discharge shift, standard gradient-boosted baselines exhibit an AUC degradation from 0.84 to 0.68. As documented in the MIMIC-IV benchmark (Johnson et al., 2023; DOI: 10.1038/s41597-023-01990-2), narrative note brevity directly accounts for 62% of predictive variance. We evaluate whether invariant causal representation alignment can restrict this delta to <0.04 (p < 0.01, paired Wilcoxon test).`,
 		},
 	];
@@ -57,11 +65,26 @@ export const EvidenceAuditView: React.FC<EvidenceAuditViewProps> = ({ brief, onA
 		handleAudit(snippet);
 	};
 
-	const handleCopyCleanRewrite = () => {
-		if (!report?.slopAnalysis.cleanScholarlyRewrite) return;
-		navigator.clipboard.writeText(report.slopAnalysis.cleanScholarlyRewrite);
-		setCopiedRewrite(true);
-		setTimeout(() => setCopiedRewrite(false), 2000);
+	const triggerNotification = (msg: string) => {
+		if (onNotify) {
+			onNotify(msg);
+		} else {
+			setStatusNotification(msg);
+			setTimeout(() => setStatusNotification(null), 3500);
+		}
+	};
+
+	const handleCopyCleanRewrite = async () => {
+		const textToCopy = report?.slopAnalysis?.cleanScholarlyRewrite;
+		if (!textToCopy) return;
+
+		const success = await copyToClipboard(textToCopy);
+		if (success) {
+			setCopiedRewrite(true);
+			setTimeout(() => setCopiedRewrite(false), 2000);
+			const toastMsg = t("auditorRewriteCopiedToast") || "Clean scholarly rewrite copied to clipboard.";
+			triggerNotification(toastMsg);
+		}
 	};
 
 	// Helper to get safe hallucinationRisk data
@@ -76,14 +99,33 @@ export const EvidenceAuditView: React.FC<EvidenceAuditViewProps> = ({ brief, onA
 			confidence: 90,
 			verdictSummary: score >= 60 ? "High probability of synthetic hallucination or invented literature." : "Low to moderate hallucination risk.",
 			factors: [
-				{ name: "Bibliographic Fabrication Risk", score: hasPhantom ? 90 : 15, description: "Evaluation of citation existence." },
-				{ name: "Synthetic Stylometric Density", score: rep.slopAnalysis.slopScore, description: "Detected unconstrained AI phrases." },
+				{ name: t("auditorFactorBiblio"), score: hasPhantom ? 90 : 15, description: t("auditorFactorBiblioDesc") },
+				{ name: t("auditorFactorStylo"), score: rep.slopAnalysis.slopScore, description: t("auditorFactorStyloDesc") },
 			],
 			flaggedSnippets: [],
 		};
 	};
 
 	const riskData = report ? getHallucinationRisk(report) : null;
+
+	const getRiskLevelName = (level: string) => {
+		switch (level) {
+			case "Critical":
+				return t("auditorRiskCritical");
+			case "Severe":
+				return t("auditorRiskSevere");
+			case "Moderate":
+				return t("auditorRiskModerate");
+			default:
+				return t("auditorRiskLow");
+		}
+	};
+
+	const getFactorName = (name: string) => {
+		if (name === "Bibliographic Fabrication Risk") return t("auditorFactorBiblio");
+		if (name === "Synthetic Stylometric Density") return t("auditorFactorStylo");
+		return name;
+	};
 
 	// Arc gauge calculation parameters
 	// Semi-circle arc: radius 95, from (35, 125) to (225, 125)
@@ -124,12 +166,12 @@ export const EvidenceAuditView: React.FC<EvidenceAuditViewProps> = ({ brief, onA
 			{/* Stage Header */}
 			<div className='border-b border-slate-200 pb-5'>
 				<div className='flex items-center gap-2 text-xs font-semibold text-slate-500 uppercase tracking-wider'>
-					<span>Integrity Verification</span>
+					<span>{t("auditorHeaderCategory")}</span>
 					<span aria-hidden='true'>·</span>
-					<span>Hallucination & Anti-Slop Lab</span>
+					<span>{t("auditorHeaderSubcategory")}</span>
 				</div>
-				<h1 className='text-2xl sm:text-3xl font-bold text-slate-900 font-serif-scholarly mt-1'>Evidence, Citation & Hallucination Auditor</h1>
-				<p className='text-sm text-slate-600 mt-2 max-w-3xl'>Deep telemetry inspection for phantom citations, synthetic LLM stylometric signatures, attribution drift, and fabricated empirical claims. Evaluates any draft with an interactive confidence gauge before submission.</p>
+				<h1 className='text-2xl sm:text-3xl font-bold text-slate-900 font-serif-scholarly mt-1'>{t("auditorPageTitle")}</h1>
+				<p className='text-sm text-slate-600 mt-2 max-w-3xl'>{t("auditorPageDescription")}</p>
 			</div>
 
 			{/* Input Mode Selector */}
@@ -142,8 +184,8 @@ export const EvidenceAuditView: React.FC<EvidenceAuditViewProps> = ({ brief, onA
 								setReport(null);
 								setSelectedSnippet(null);
 							}}
-							className={`px-3.5 py-1.5 text-xs font-semibold rounded-lg transition-colors ${activeTab === "brief" ? "bg-slate-900 text-white" : "bg-slate-100 text-slate-700 hover:bg-slate-200"}`}>
-							Audit Current Research Brief
+							className={`px-3.5 py-1.5 text-xs font-semibold rounded-lg transition-colors cursor-pointer ${activeTab === "brief" ? "bg-slate-900 text-white" : "bg-slate-100 text-slate-700 hover:bg-slate-200"}`}>
+							{t("auditorTabBrief")}
 						</button>
 						<button
 							onClick={() => {
@@ -151,16 +193,16 @@ export const EvidenceAuditView: React.FC<EvidenceAuditViewProps> = ({ brief, onA
 								setReport(null);
 								setSelectedSnippet(null);
 							}}
-							className={`px-3.5 py-1.5 text-xs font-semibold rounded-lg transition-colors ${activeTab === "custom" ? "bg-slate-900 text-white" : "bg-slate-100 text-slate-700 hover:bg-slate-200"}`}>
-							Paste & Audit Custom Draft / Literature
+							className={`px-3.5 py-1.5 text-xs font-semibold rounded-lg transition-colors cursor-pointer ${activeTab === "custom" ? "bg-slate-900 text-white" : "bg-slate-100 text-slate-700 hover:bg-slate-200"}`}>
+							{t("auditorTabCustom")}
 						</button>
 					</div>
 
 					<div className='flex flex-wrap items-center gap-1.5 text-xs text-slate-500'>
-						<span className='text-slate-400 font-medium'>Quick Test:</span>
+						<span className='text-slate-400 font-medium'>{t("auditorQuickTest")}</span>
 						{demoSnippets.map((demo, idx) => (
-							<button key={idx} onClick={() => handleApplyPreset(demo.text)} className='px-2.5 py-1 text-xs bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg transition-colors font-medium border border-slate-200/60' title={`Click to load and audit ${demo.label}`}>
-								{demo.label.split("(")[0].trim()}
+							<button key={idx} onClick={() => handleApplyPreset(demo.text)} className='px-2.5 py-1 text-xs bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg transition-colors font-medium border border-slate-200/60 cursor-pointer' title={`${demo.badge}: ${demo.label}`}>
+								{demo.label}
 							</button>
 						))}
 					</div>
@@ -169,25 +211,25 @@ export const EvidenceAuditView: React.FC<EvidenceAuditViewProps> = ({ brief, onA
 				{activeTab === "custom" && (
 					<div className='space-y-2 pt-2'>
 						<label htmlFor='custom-draft' className='block text-xs uppercase tracking-wider font-semibold text-slate-500'>
-							Input Text (Draft, Literature Review, or Proposal Abstract)
+							{t("auditorInputLabel")}
 						</label>
-						<textarea id='custom-draft' rows={4} value={customText} onChange={(e) => setCustomText(e.target.value)} placeholder='Paste any academic paragraph or LLM-generated literature text to audit citations and AI slop...' className='w-full px-3.5 py-2.5 text-sm rounded-lg border border-slate-300 bg-white focus:outline-none focus:ring-2 focus:ring-slate-900 placeholder:text-slate-400 font-serif-scholarly leading-relaxed' />
+						<textarea id='custom-draft' rows={4} value={customText} onChange={(e) => setCustomText(e.target.value)} placeholder={t("auditorInputPlaceholder")} className='w-full px-3.5 py-2.5 text-sm rounded-lg border border-slate-300 bg-white focus:outline-none focus:ring-2 focus:ring-slate-900 placeholder:text-slate-400 font-serif-scholarly leading-relaxed' />
 					</div>
 				)}
 
 				<div className='flex items-center justify-between pt-2'>
-					<span className='text-xs text-slate-400 font-mono-tabular'>{activeTab === "brief" ? `Target: Current Brief ("${brief.title.slice(0, 45)}...")` : `${customText.split(/\s+/).filter(Boolean).length} words ready to scan`}</span>
+					<span className='text-xs text-slate-400 font-mono-tabular'>{activeTab === "brief" ? `${t("auditorTargetBrief")} ("${brief.title.slice(0, 45)}...")` : `${customText.split(/\s+/).filter(Boolean).length} ${t("auditorWordsReady")}`}</span>
 
-					<button onClick={() => handleAudit()} disabled={isLoading || (activeTab === "custom" && !customText.trim())} className='px-5 py-2 text-xs font-semibold text-white bg-slate-900 hover:bg-slate-800 disabled:opacity-50 rounded-lg transition-colors flex items-center gap-1.5 shadow-2xs'>
+					<button onClick={() => handleAudit()} disabled={isLoading || (activeTab === "custom" && !customText.trim())} className='px-5 py-2 text-xs font-semibold text-white bg-slate-900 hover:bg-slate-800 disabled:opacity-50 rounded-lg transition-colors flex items-center gap-1.5 shadow-2xs cursor-pointer'>
 						{isLoading ? (
 							<>
 								<Loader2 className='w-3.5 h-3.5 animate-spin' />
-								<span>Auditing Hallucination & Grounding...</span>
+								<span>{t("auditorBtnAuditing")}</span>
 							</>
 						) : (
 							<>
 								<Search className='w-3.5 h-3.5' />
-								<span>Run Hallucination & Citation Audit</span>
+								<span>{t("auditorBtnRun")}</span>
 							</>
 						)}
 					</button>
@@ -198,36 +240,36 @@ export const EvidenceAuditView: React.FC<EvidenceAuditViewProps> = ({ brief, onA
 			{!report && !isLoading && (
 				<div className='bg-white rounded-xl border border-slate-200 p-6 sm:p-8 space-y-6 shadow-xs'>
 					<div className='space-y-1'>
-						<h3 className='text-base font-bold text-slate-900 font-serif-scholarly'>Why Audit Research Proposals for Hallucination & AI Fluff?</h3>
-						<p className='text-xs text-slate-600 max-w-2xl'>Generative models frequently write convincing academic prose while fabricating literature, misattributing landmark findings, or hiding empirical gaps behind buzzwords.</p>
+						<h3 className='text-base font-bold text-slate-900 font-serif-scholarly'>{t("auditorWhyTitle")}</h3>
+						<p className='text-xs text-slate-600 max-w-2xl'>{t("auditorWhyDesc")}</p>
 					</div>
 
 					<div className='grid grid-cols-1 md:grid-cols-3 gap-4'>
 						<div onClick={() => handleApplyPreset(demoSnippets[0].text)} className='p-4 rounded-xl border border-rose-200 bg-rose-50/40 hover:bg-rose-50 hover:border-rose-300 transition-all cursor-pointer space-y-2 group'>
 							<div className='flex items-center justify-between'>
-								<span className='text-xs font-bold text-rose-700 uppercase tracking-wider font-mono-tabular'>Trap 01 · Phantom Citation</span>
-								<span className='text-[11px] text-rose-600 group-hover:underline'>Test Demo →</span>
+								<span className='text-xs font-bold text-rose-700 uppercase tracking-wider font-mono-tabular'>{t("auditorTrap1Badge")}</span>
+								<span className='text-[11px] text-rose-600 group-hover:underline'>{t("auditorTestDemo")}</span>
 							</div>
-							<h4 className='text-sm font-semibold text-slate-900'>Invented Papers & AI Slop</h4>
-							<p className='text-xs text-slate-600 leading-relaxed'>Fabricates a non-existent paper (e.g. "Smith et al. 2024 quantum benchmark") and uses empty buzzwords ("multifaceted tapestry", "stands as a testament").</p>
+							<h4 className='text-sm font-semibold text-slate-900'>{t("auditorTrap1Title")}</h4>
+							<p className='text-xs text-slate-600 leading-relaxed'>{t("auditorTrap1Desc")}</p>
 						</div>
 
 						<div onClick={() => handleApplyPreset(demoSnippets[1].text)} className='p-4 rounded-xl border border-amber-200 bg-amber-50/40 hover:bg-amber-50 hover:border-amber-300 transition-all cursor-pointer space-y-2 group'>
 							<div className='flex items-center justify-between'>
-								<span className='text-xs font-bold text-amber-700 uppercase tracking-wider font-mono-tabular'>Trap 02 · Attribution Drift</span>
-								<span className='text-[11px] text-amber-600 group-hover:underline'>Test Demo →</span>
+								<span className='text-xs font-bold text-amber-700 uppercase tracking-wider font-mono-tabular'>{t("auditorTrap2Badge")}</span>
+								<span className='text-[11px] text-amber-600 group-hover:underline'>{t("auditorTestDemo")}</span>
 							</div>
-							<h4 className='text-sm font-semibold text-slate-900'>Real Paper, Fabricated Claims</h4>
-							<p className='text-xs text-slate-600 leading-relaxed'>Cites a famous real paper (Vaswani et al. 2017), but falsely claims it proved 2KB RAM execution on ARM Cortex microcontrollers.</p>
+							<h4 className='text-sm font-semibold text-slate-900'>{t("auditorTrap2Title")}</h4>
+							<p className='text-xs text-slate-600 leading-relaxed'>{t("auditorTrap2Desc")}</p>
 						</div>
 
 						<div onClick={() => handleApplyPreset(demoSnippets[2].text)} className='p-4 rounded-xl border border-emerald-200 bg-emerald-50/40 hover:bg-emerald-50 hover:border-emerald-300 transition-all cursor-pointer space-y-2 group'>
 							<div className='flex items-center justify-between'>
-								<span className='text-xs font-bold text-emerald-700 uppercase tracking-wider font-mono-tabular'>Baseline · Clean Prose</span>
-								<span className='text-[11px] text-emerald-600 group-hover:underline'>Test Demo →</span>
+								<span className='text-xs font-bold text-emerald-700 uppercase tracking-wider font-mono-tabular'>{t("auditorTrap3Badge")}</span>
+								<span className='text-[11px] text-emerald-600 group-hover:underline'>{t("auditorTestDemo")}</span>
 							</div>
-							<h4 className='text-sm font-semibold text-slate-900'>Rigorous Empirical Writing</h4>
-							<p className='text-xs text-slate-600 leading-relaxed'>Real verified DOI (MIMIC-IV benchmark), exact empirical degradation metrics (0.84 to 0.68 AUC), and a falsifiable p-value threshold.</p>
+							<h4 className='text-sm font-semibold text-slate-900'>{t("auditorTrap3Title")}</h4>
+							<p className='text-xs text-slate-600 leading-relaxed'>{t("auditorTrap3Desc")}</p>
 						</div>
 					</div>
 				</div>
@@ -242,14 +284,16 @@ export const EvidenceAuditView: React.FC<EvidenceAuditViewProps> = ({ brief, onA
 							<div className='space-y-1'>
 								<div className='flex items-center gap-2'>
 									<Gauge className='w-4 h-4 text-slate-700' />
-									<span className='text-sm font-bold text-slate-900 font-serif-scholarly'>Hallucination Risk & AI Text Detection Gauge</span>
+									<span className='text-sm font-bold text-slate-900 font-serif-scholarly'>{t("auditorGaugeTitle")}</span>
 								</div>
-								<p className='text-xs text-slate-500'>Calibrated probability that text relies on fabricated bibliographic records, hallucinated mechanisms, or generative buzzwords.</p>
+								<p className='text-xs text-slate-500'>{t("auditorGaugeSub")}</p>
 							</div>
 
 							<div className='flex items-center gap-2'>
-								<span className='text-xs text-slate-500'>Detection Confidence:</span>
-								<span className='font-mono-tabular text-xs font-bold px-2 py-0.5 rounded bg-slate-100 text-slate-800 border border-slate-200'>{riskData.confidence}% Confidence</span>
+								<span className='text-xs text-slate-500'>{t("auditorDetectionConfidence")}</span>
+								<span className='font-mono-tabular text-xs font-bold px-2 py-0.5 rounded bg-slate-100 text-slate-800 border border-slate-200'>
+									{riskData.confidence}% {t("auditorConfidence")}
+								</span>
 							</div>
 						</div>
 
@@ -289,36 +333,38 @@ export const EvidenceAuditView: React.FC<EvidenceAuditViewProps> = ({ brief, onA
 										<span className='text-3xl font-bold font-mono-tabular leading-none' style={{ color: getGaugeColor(riskScore) }}>
 											{riskScore}%
 										</span>
-										<span className='text-[10px] uppercase tracking-wider font-semibold text-slate-500 mt-1'>Hallucination Likelihood</span>
+										<span className='text-[10px] uppercase tracking-wider font-semibold text-slate-500 mt-1'>{t("auditorLikelihood")}</span>
 									</div>
 								</div>
 
 								{/* Risk Level Badge */}
 								<div className='mt-3 flex items-center gap-2'>
-									<span className={`text-xs font-bold uppercase tracking-wider px-3 py-1 rounded border font-mono-tabular ${getRiskBadgeColor(riskData.riskLevel)}`}>● {riskData.riskLevel} Risk Tier</span>
+									<span className={`text-xs font-bold uppercase tracking-wider px-3 py-1 rounded border font-mono-tabular ${getRiskBadgeColor(riskData.riskLevel)}`}>
+										● {getRiskLevelName(riskData.riskLevel)} {t("auditorRiskTier")}
+									</span>
 								</div>
 
 								<div className='flex justify-between w-full text-[10px] text-slate-400 font-mono-tabular px-4 mt-2'>
-									<span>0% Human / Grounded</span>
+									<span>{t("auditorGroundedLabel")}</span>
 									<span>50%</span>
-									<span>100% Hallucinated</span>
+									<span>{t("auditorHallucinatedLabel")}</span>
 								</div>
 							</div>
 
 							{/* Factors & Diagnostic Verdict (7 cols) */}
 							<div className='md:col-span-7 space-y-4'>
 								<div className='p-3.5 rounded-lg bg-slate-50 border border-slate-200/80 text-xs'>
-									<span className='font-semibold text-slate-900 block mb-1'>Auditor Diagnostic Verdict:</span>
+									<span className='font-semibold text-slate-900 block mb-1'>{t("auditorVerdictTitle")}</span>
 									<p className='text-slate-700 leading-relaxed'>{riskData.verdictSummary}</p>
 								</div>
 
 								<div className='space-y-3'>
-									<span className='text-xs uppercase tracking-wider font-semibold text-slate-500 block'>Telemetry Factor Breakdown</span>
+									<span className='text-xs uppercase tracking-wider font-semibold text-slate-500 block'>{t("auditorFactorBreakdown")}</span>
 
 									{riskData.factors.map((factor, idx) => (
 										<div key={idx} className='space-y-1'>
 											<div className='flex items-center justify-between text-xs'>
-												<span className='font-semibold text-slate-800'>{factor.name}</span>
+												<span className='font-semibold text-slate-800'>{getFactorName(factor.name)}</span>
 												<span className='font-mono-tabular font-bold text-slate-900'>{factor.score}%</span>
 											</div>
 											<div className='w-full bg-slate-100 rounded-full h-1.5 overflow-hidden'>
@@ -344,9 +390,11 @@ export const EvidenceAuditView: React.FC<EvidenceAuditViewProps> = ({ brief, onA
 							<div className='flex items-center justify-between'>
 								<div className='flex items-center gap-2 text-sm font-semibold text-slate-900'>
 									<FileWarning className='w-4 h-4 text-rose-600' />
-									<span>Flagged AI Hallucinations & Fabricated References ({riskData.flaggedSnippets.length})</span>
+									<span>
+										{t("auditorFlaggedTitle")} ({riskData.flaggedSnippets.length})
+									</span>
 								</div>
-								<span className='text-xs text-slate-400 font-mono-tabular'>Forensic Trace Analyzer</span>
+								<span className='text-xs text-slate-400 font-mono-tabular'>{t("auditorForensicAnalyzer")}</span>
 							</div>
 
 							<div className='space-y-3'>
@@ -360,21 +408,21 @@ export const EvidenceAuditView: React.FC<EvidenceAuditViewProps> = ({ brief, onA
 											<div className='flex flex-col sm:flex-row sm:items-start justify-between gap-2'>
 												<div className='space-y-1.5'>
 													<div className='flex flex-wrap items-center gap-2'>
-														<span className={`text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded font-mono-tabular ${isCritical ? "bg-rose-700 text-white" : "bg-amber-600 text-white"}`}>{isCritical ? "CRITICAL DETECT" : "WARNING"}</span>
+														<span className={`text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded font-mono-tabular ${isCritical ? "bg-rose-700 text-white" : "bg-amber-600 text-white"}`}>{isCritical ? t("auditorCriticalDetect") : t("auditorWarningDetect")}</span>
 
-														<span className='text-[11px] font-semibold text-slate-700 uppercase font-mono-tabular'>{isInventedCitation ? "Invented Citation / Attribution Drift" : isRhetoric ? "Synthetic LLM Cliché" : "Ungrounded Claim"}</span>
+														<span className='text-[11px] font-semibold text-slate-700 uppercase font-mono-tabular'>{isInventedCitation ? t("auditorCategoryInvented") : isRhetoric ? t("auditorCategoryRhetoric") : t("auditorCategoryUngrounded")}</span>
 													</div>
 
 													<div className='text-xs sm:text-sm font-serif-scholarly font-medium text-slate-900 bg-white/70 p-2.5 rounded border border-slate-200/60'>"{item.snippet}"</div>
 
 													<p className='text-xs text-slate-700'>
-														<span className='font-semibold text-slate-900'>Forensic Verdict: </span>
+														<span className='font-semibold text-slate-900'>{t("auditorForensicVerdict")} </span>
 														{item.reason}
 													</p>
 												</div>
 
 												<div className='shrink-0 flex sm:flex-col items-end gap-1 font-mono-tabular text-xs'>
-													<span className='text-slate-400 text-[10px]'>Gauge Confidence</span>
+													<span className='text-slate-400 text-[10px]'>{t("auditorGaugeConfidence")}</span>
 													<span className='font-bold text-slate-800'>{item.confidence}%</span>
 												</div>
 											</div>
@@ -390,12 +438,12 @@ export const EvidenceAuditView: React.FC<EvidenceAuditViewProps> = ({ brief, onA
 						{/* Overall Integrity */}
 						<div className='bg-white rounded-xl border border-slate-200 p-5 shadow-xs space-y-2'>
 							<div className='flex items-center justify-between text-xs text-slate-500 uppercase tracking-wider font-semibold'>
-								<span>Overall Integrity</span>
+								<span>{t("auditorOverallIntegrity")}</span>
 								{report.overallIntegrityScore >= 80 ? <ShieldCheck className='w-4 h-4 text-emerald-600' /> : <ShieldAlert className='w-4 h-4 text-amber-600' />}
 							</div>
 							<div className='flex items-baseline gap-2'>
 								<span className='text-3xl font-bold font-mono-tabular text-slate-900'>{report.overallIntegrityScore}%</span>
-								<span className={`text-xs font-semibold ${report.overallIntegrityScore >= 80 ? "text-emerald-700" : report.overallIntegrityScore >= 60 ? "text-amber-700" : "text-rose-700"}`}>{report.overallIntegrityScore >= 80 ? "Publication Grade" : report.overallIntegrityScore >= 60 ? "Attribution Warnings" : "Integrity Failures"}</span>
+								<span className={`text-xs font-semibold ${report.overallIntegrityScore >= 80 ? "text-emerald-700" : report.overallIntegrityScore >= 60 ? "text-amber-700" : "text-rose-700"}`}>{report.overallIntegrityScore >= 80 ? t("auditorPublicationGrade") : report.overallIntegrityScore >= 60 ? t("auditorAttributionWarnings") : t("auditorIntegrityFailures")}</span>
 							</div>
 							<div className='w-full bg-slate-100 rounded-full h-1.5 overflow-hidden'>
 								<div className={`h-1.5 rounded-full ${report.overallIntegrityScore >= 80 ? "bg-emerald-600" : report.overallIntegrityScore >= 60 ? "bg-amber-500" : "bg-rose-600"}`} style={{ width: `${report.overallIntegrityScore}%` }} />
@@ -405,12 +453,12 @@ export const EvidenceAuditView: React.FC<EvidenceAuditViewProps> = ({ brief, onA
 						{/* AI Slop Penalty */}
 						<div className='bg-white rounded-xl border border-slate-200 p-5 shadow-xs space-y-2'>
 							<div className='flex items-center justify-between text-xs text-slate-500 uppercase tracking-wider font-semibold'>
-								<span>AI Slop Penalty</span>
+								<span>{t("auditorAiSlopPenalty")}</span>
 								<Sparkles className='w-4 h-4 text-purple-600' />
 							</div>
 							<div className='flex items-baseline gap-2'>
 								<span className='text-3xl font-bold font-mono-tabular text-slate-900'>{report.slopAnalysis.slopScore}%</span>
-								<span className={`text-xs font-semibold ${report.slopAnalysis.slopScore <= 15 ? "text-emerald-700" : report.slopAnalysis.slopScore <= 40 ? "text-amber-700" : "text-rose-700"}`}>{report.slopAnalysis.slopScore <= 15 ? "Clean Scientific Style" : `${report.slopAnalysis.detectedPatterns.length} Buzzwords Detected`}</span>
+								<span className={`text-xs font-semibold ${report.slopAnalysis.slopScore <= 15 ? "text-emerald-700" : report.slopAnalysis.slopScore <= 40 ? "text-amber-700" : "text-rose-700"}`}>{report.slopAnalysis.slopScore <= 15 ? t("auditorCleanScientific") : `${report.slopAnalysis.detectedPatterns.length} ${t("auditorBuzzwordsDetected")}`}</span>
 							</div>
 							<div className='w-full bg-slate-100 rounded-full h-1.5 overflow-hidden'>
 								<div className={`h-1.5 rounded-full ${report.slopAnalysis.slopScore <= 15 ? "bg-emerald-600" : "bg-purple-600"}`} style={{ width: `${report.slopAnalysis.slopScore}%` }} />
@@ -420,12 +468,12 @@ export const EvidenceAuditView: React.FC<EvidenceAuditViewProps> = ({ brief, onA
 						{/* Empirical Density */}
 						<div className='bg-white rounded-xl border border-slate-200 p-5 shadow-xs space-y-2'>
 							<div className='flex items-center justify-between text-xs text-slate-500 uppercase tracking-wider font-semibold'>
-								<span>Empirical Density</span>
+								<span>{t("empiricalDensityLabel")}</span>
 								<Zap className='w-4 h-4 text-amber-600' />
 							</div>
 							<div className='flex items-baseline gap-2'>
 								<span className='text-3xl font-bold font-mono-tabular text-slate-900'>{report.slopAnalysis.empiricalDensityScore}%</span>
-								<span className='text-xs font-semibold text-slate-600'>Quantitative Grounding</span>
+								<span className='text-xs font-semibold text-slate-600'>{t("auditorQuantitativeGrounding")}</span>
 							</div>
 							<div className='w-full bg-slate-100 rounded-full h-1.5 overflow-hidden'>
 								<div className='bg-amber-500 h-1.5 rounded-full' style={{ width: `${report.slopAnalysis.empiricalDensityScore}%` }} />
@@ -438,9 +486,11 @@ export const EvidenceAuditView: React.FC<EvidenceAuditViewProps> = ({ brief, onA
 						<div className='flex items-center justify-between'>
 							<div className='flex items-center gap-2 text-sm font-semibold text-slate-900'>
 								<BookOpen className='w-4 h-4 text-slate-700' />
-								<span>Citation Truth Matrix (Phantom & Drift Inspector)</span>
+								<span>{t("auditorCitationMatrix")}</span>
 							</div>
-							<span className='text-xs text-slate-400 font-mono-tabular'>{report.citations.length} References Verified</span>
+							<span className='text-xs text-slate-400 font-mono-tabular'>
+								{report.citations.length} {t("auditorReferencesVerified")}
+							</span>
 						</div>
 
 						<div className='space-y-3'>
@@ -454,7 +504,7 @@ export const EvidenceAuditView: React.FC<EvidenceAuditViewProps> = ({ brief, onA
 										<div className='flex flex-col sm:flex-row sm:items-start justify-between gap-2'>
 											<div className='space-y-1'>
 												<div className='flex items-center gap-2'>
-													<span className={`text-[11px] font-bold uppercase tracking-wider px-2 py-0.5 rounded font-mono-tabular ${isVerified ? "bg-emerald-700 text-white" : isDrift ? "bg-amber-600 text-white" : "bg-rose-700 text-white"}`}>{isVerified ? "● Verified Indexed Source" : isDrift ? "▲ Attribution Drift Warning" : "✖ Phantom Hallucination"}</span>
+													<span className={`text-[11px] font-bold uppercase tracking-wider px-2 py-0.5 rounded font-mono-tabular ${isVerified ? "bg-emerald-700 text-white" : isDrift ? "bg-amber-600 text-white" : "bg-rose-700 text-white"}`}>{isVerified ? t("auditorVerifiedSource") : isDrift ? t("auditorDriftWarning") : t("auditorPhantomHallucination")}</span>
 
 													<span className='font-semibold text-xs text-slate-900 font-mono-tabular'>{item.citationText}</span>
 												</div>
@@ -462,28 +512,35 @@ export const EvidenceAuditView: React.FC<EvidenceAuditViewProps> = ({ brief, onA
 												<h4 className='text-sm font-bold text-slate-900 font-serif-scholarly'>{renderScholarlyText(item.paperTitle)}</h4>
 
 												<p className='text-xs text-slate-600'>
-													<span className='font-semibold text-slate-700'>Alleged Claim: </span>"{item.allegedClaim}"
+													<span className='font-semibold text-slate-700'>{t("auditorAllegedClaim")} </span>"{item.allegedClaim}"
 												</p>
 
 												<p className={`text-xs font-medium ${isVerified ? "text-emerald-900" : isDrift ? "text-amber-900" : "text-rose-900"}`}>
-													<span className='font-semibold'>Auditor Verdict: </span>
+													<span className='font-semibold'>{t("auditorAuditorVerdict")} </span>
 													{item.verdictReason}
 												</p>
 
 												{item.verifiedAuthors && (
 													<div className='text-[11px] text-slate-500 font-mono-tabular pt-1'>
-														<span>Authors: {item.verifiedAuthors}</span>
-														{item.verifiedVenueYear && <span> · Venue: {item.verifiedVenueYear}</span>}
+														<span>
+															{t("auditorAuthors")} {item.verifiedAuthors}
+														</span>
+														{item.verifiedVenueYear && (
+															<span>
+																{" "}
+																· {t("auditorVenue")} {item.verifiedVenueYear}
+															</span>
+														)}
 													</div>
 												)}
 											</div>
 
 											<div className='shrink-0 flex sm:flex-col items-end gap-1 font-mono-tabular text-xs'>
-												<span className='text-slate-400 text-[10px]'>Confidence</span>
+												<span className='text-slate-400 text-[10px]'>{t("auditorConfidence")}</span>
 												<span className='font-bold text-slate-800'>{item.confidenceScore}%</span>
 												{item.groundedSourceUrl && (
 													<a href={item.groundedSourceUrl} target='_blank' rel='noopener noreferrer' className='inline-flex items-center gap-1 text-[11px] text-slate-700 hover:text-slate-900 underline mt-1'>
-														<span>Open Source</span>
+														<span>{t("auditorOpenSource")}</span>
 														<ExternalLink className='w-3 h-3' />
 													</a>
 												)}
@@ -500,9 +557,11 @@ export const EvidenceAuditView: React.FC<EvidenceAuditViewProps> = ({ brief, onA
 						<div className='flex items-center justify-between'>
 							<div className='flex items-center gap-2 text-sm font-semibold text-slate-900'>
 								<Sparkles className='w-4 h-4 text-purple-700' />
-								<span>AI Slop Deflator & Scientific Style Rewriter</span>
+								<span>{t("auditorSlopDeflator")}</span>
 							</div>
-							<span className='text-xs text-slate-400'>{report.slopAnalysis.detectedPatterns.length} Patterns Flagged</span>
+							<span className='text-xs text-slate-400'>
+								{report.slopAnalysis.detectedPatterns.length} {t("auditorPatternsFlagged")}
+							</span>
 						</div>
 
 						<p className='text-xs text-slate-600'>{report.slopAnalysis.critiqueSummary}</p>
@@ -520,7 +579,7 @@ export const EvidenceAuditView: React.FC<EvidenceAuditViewProps> = ({ brief, onA
 										</div>
 
 										<div className='shrink-0 bg-white p-2 rounded border border-slate-200 text-[11px] max-w-xs'>
-											<span className='text-slate-400 font-semibold uppercase block text-[9px]'>Rigorous Academic Substitute:</span>
+											<span className='text-slate-400 font-semibold uppercase block text-[9px]'>{t("auditorAcademicSubstitute")}</span>
 											<span className='font-medium text-emerald-800'>{pat.suggestedRewrite}</span>
 										</div>
 									</div>
@@ -531,10 +590,10 @@ export const EvidenceAuditView: React.FC<EvidenceAuditViewProps> = ({ brief, onA
 						{/* Clean Scholarly Rewrite Box */}
 						<div className='mt-4 pt-4 border-t border-slate-100 space-y-2'>
 							<div className='flex items-center justify-between'>
-								<span className='text-xs uppercase tracking-wider font-semibold text-slate-500'>Purified Scholarly Prose (AI Slop Removed)</span>
-								<button onClick={handleCopyCleanRewrite} className='px-2.5 py-1 text-xs font-medium text-slate-700 bg-slate-100 hover:bg-slate-200 rounded transition-colors flex items-center gap-1'>
+								<span className='text-xs uppercase tracking-wider font-semibold text-slate-500'>{t("auditorPurifiedProse")}</span>
+								<button onClick={handleCopyCleanRewrite} className='px-2.5 py-1 text-xs font-medium text-slate-700 bg-slate-100 hover:bg-slate-200 rounded transition-colors flex items-center gap-1 cursor-pointer'>
 									{copiedRewrite ? <Check className='w-3 h-3 text-emerald-600' /> : <Copy className='w-3 h-3' />}
-									<span>{copiedRewrite ? "Copied" : "Copy Cleaned Text"}</span>
+									<span>{copiedRewrite ? t("auditorCopied") : t("auditorCopyCleaned")}</span>
 								</button>
 							</div>
 
@@ -544,7 +603,7 @@ export const EvidenceAuditView: React.FC<EvidenceAuditViewProps> = ({ brief, onA
 
 					{/* Section 3: Recommendations */}
 					<div className='bg-slate-50 rounded-xl border border-slate-200 p-5 text-xs space-y-2'>
-						<span className='font-semibold text-slate-900 uppercase tracking-wider block'>Integrity Committee Guidance</span>
+						<span className='font-semibold text-slate-900 uppercase tracking-wider block'>{t("auditorCommitteeGuidance")}</span>
 						<ul className='space-y-1.5 text-slate-700'>
 							{report.recommendations.map((rec, idx) => (
 								<li key={idx} className='flex items-start gap-2'>
@@ -556,6 +615,9 @@ export const EvidenceAuditView: React.FC<EvidenceAuditViewProps> = ({ brief, onA
 					</div>
 				</div>
 			)}
+
+			{/* Fallback floating status toast if onNotify is not provided */}
+			{!onNotify && statusNotification && <div className='fixed bottom-4 right-4 z-50 bg-slate-900 text-white px-4 py-2.5 rounded-xl text-xs font-semibold shadow-xl border border-slate-700/50 animate-in fade-in slide-in-from-bottom-2'>{statusNotification}</div>}
 		</div>
 	);
 };
