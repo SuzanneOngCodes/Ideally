@@ -7,9 +7,10 @@ import urllib.parse
 import asyncio
 from datetime import datetime
 from typing import Dict, Any, Optional, List
-import traceback
 
 from langchain_google_genai import ChatGoogleGenerativeAI
+from src.core.agent_logging import AgentLogHandler
+from src.core.logger import error_fields, log_event
 from src.modules.auditor.schemas import AuditReport
 
 logger = logging.getLogger(__name__)
@@ -61,7 +62,7 @@ class CitationAuditService:
             if report:
                 return {"report": report, "engine": self.settings.gemini_model}
         except Exception as e:
-            logger.error(f"AI Citation Audit failed, falling back to local engine. Error: {str(e)}\n{traceback.format_exc()}")
+            log_event("auditor.fallback", level=logging.WARNING, **error_fields(e))
             pass
 
         # 2. Local Heuristic Rule Fallback Execution with LIVE Verification Support
@@ -162,7 +163,11 @@ class CitationAuditService:
         chat_model = ChatGoogleGenerativeAI(
             model=self.settings.gemini_model,
             api_key=self.settings.google_api_key.get_secret_value(),
+            vertexai=self.settings.gemini_use_vertexai,
+            project=self.settings.google_cloud_project or None,
+            location=self.settings.google_cloud_location or None,
             timeout=self.settings.agent_timeout_seconds,
+            callbacks=[AgentLogHandler()],
             max_retries=8
         )
         

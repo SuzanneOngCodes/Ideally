@@ -5,6 +5,7 @@ from sqlalchemy.orm import Session
 
 from src.core.agent import AgentService
 from src.core.errors import AgentUnavailableError
+from src.core.logger import log_event
 from src.modules.session.models import ChatMessage, ChatSession
 from src.modules.session.repository import claim_version, get_session
 from src.modules.session.schemas import MessageCreate, MessageRead, MessageResponse
@@ -28,6 +29,7 @@ async def send_message(
             for m in session.messages[-agent.settings.max_history_messages :]
         ]
         db.rollback()  # Release the read transaction before waiting for the provider.
+    log_event("chat.received", session_id=session_id, research=payload.research)
     history.append({"role": "user", "content": content})
     try:
         result = await agent.reply(history, payload.research)
@@ -43,7 +45,9 @@ async def send_message(
         )
         if code == 404:
             raise HTTPException(
-                502, "AI model not available; check GEMINI_MODEL and GEMINI_FALLBACK_MODEL"
+                502,
+                "AI model not available; check GEMINI_MODEL, GEMINI_FALLBACK_MODEL "
+                "and GOOGLE_CLOUD_LOCATION",
             ) from error
         if code == 429:
             raise HTTPException(
@@ -79,6 +83,7 @@ async def send_message(
             updated_research["reasoning_map"] = session.research.get("reasoning_map")
         session.research = updated_research
     db.commit()
+    log_event("chat.saved", session_id=str(session_id))
     return MessageResponse(
         session_id=session_id,
         user_message=MessageRead.model_validate(user),

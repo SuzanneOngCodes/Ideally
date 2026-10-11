@@ -35,6 +35,14 @@ uv run uvicorn src.main:app --reload --host 127.0.0.1 --port 8000
 Swagger: http://localhost:8000/docs. Health: http://localhost:8000/health.
 Không cần API key để chạy CRUD session; gửi message cần key Gemini hợp lệ.
 Model mặc định là `gemini-3.8-flash`, thay bằng `GEMINI_MODEL` nếu cần.
+Gemini có thể chạy qua Vertex AI bằng `GEMINI_USE_VERTEXAI=true` cùng
+`GOOGLE_CLOUD_PROJECT` và `GOOGLE_CLOUD_LOCATION`; cấu hình này được dùng cho cả chat và Citation Auditor.
+Dùng `GOOGLE_CLOUD_LOCATION=global` cho cấu hình model hiện tại. Khi gặp provider 404,
+kiểm tra cả model và endpoint theo [danh sách location của Google](https://docs.cloud.google.com/vertex-ai/generative-ai/docs/learn/locations).
+Endpoint `global` không giới hạn xử lý tại châu Âu. Khi truyền project/location,
+SDK ưu tiên Application Default Credentials (ADC) thay cho API key; thông báo INFO
+về thứ tự ưu tiên này không phải lỗi.
+Khởi động lại backend sau khi sửa `.env` để nạp lại settings.
 SQLite mặc định nằm tại `backend/ideally.db`; `DATABASE_URL` có thể thay đổi.
 Nếu đổi sang PostgreSQL, cài driver tương ứng và dùng URL SQLAlchemy phù hợp.
 
@@ -188,3 +196,24 @@ Map lưu trong JSON research của session hiện có, không cần thay đổi 
 Chat follow-up không có map mới giữ map trước đó. Hội thoại cũ có thể dùng
 Build Research Map để tạo map từ lịch sử hiện tại. Frontend không dùng preset map
 hay biểu đồ số liệu mẫu trong Workspace.
+
+## Theo dõi agent và tool
+
+Backend xuất log JSON ở `LOG_LEVEL=INFO`: request/model/tool start–end–error,
+query/params, thời gian, model fallback và sự kiện đọc skill. Dùng `request_id`
+(trả về trong header `X-Request-ID`) để nối các sự kiện.
+Xem [hướng dẫn và ví dụ log](docs/logging.md).
+
+## Skill và đọc nguồn
+
+Agent đăng ký `load_skill`, `web_search` và `crawl_web_markdown` kể cả khi
+`research=false`. Prompt yêu cầu chọn skill theo tác vụ; search yêu cầu skill
+`verify-problem`, crawl yêu cầu `read-research-source`. Sau tìm kiếm có nguồn,
+agent phải thử crawl trước khi trả lời. Backend yêu cầu sửa một lần nếu bỏ qua
+bước bắt buộc; nếu vẫn bỏ qua, request trả lỗi thay vì coi workflow đã hoàn thành.
+
+Đặt `CRAWL4AI_API_KEY` trong `.env`. Crawler dùng
+[`POST /scrape`](https://docs.crawl4ai.com/) để lấy Markdown của URL gốc, tối đa
+3 URL/lần và 2 lần crawl/lượt chat. Crawl lỗi được trả cho model để nêu giới hạn;
+không tự nâng nguồn chỉ có snippet thành bằng chứng đã đọc. Tool trả phần đầu
+Markdown có giới hạn và cờ `truncated`, không cam kết đã đọc toàn bộ tài liệu.
