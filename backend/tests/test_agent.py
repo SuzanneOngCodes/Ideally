@@ -41,7 +41,11 @@ def test_agent_uses_grounded_search_and_filters_unobserved_sources(monkeypatch):
         class Graph:
             async def ainvoke(self, payload, config):
                 assert "web_search" in payload["messages"][-1]["content"]
-                await kwargs["tools"][0].ainvoke({"query": "Research AI"})
+                tools = {t.name: t for t in kwargs["tools"]}
+                await tools["load_skill"].ainvoke({"skill": "verify-problem", "task": "Research"})
+                await tools["web_search"].ainvoke({"query": "Research AI"})
+                await tools["load_skill"].ainvoke({"skill": "read-research-source", "task": "Read"})
+                await tools["crawl_web_markdown"].ainvoke({"urls": ["https://docs.langchain.com/"]})
                 return {
                     "structured_response": AgentReply(
                         answer="Result",
@@ -75,13 +79,16 @@ def test_chat_uses_llm_fallback_and_preserves_history(monkeypatch):
         def __init__(self, **kwargs):
             self.name = kwargs["model"]
 
+        def bind_tools(self, tools):
+            return self
+
         def with_structured_output(self, schema):
             assert schema is AgentReply
             return self
 
-        async def ainvoke(self, messages):
+        async def ainvoke(self, messages, config=None):
             calls.append(self.name)
-            assert messages[1:] == history
+            assert messages == history
             if self.name == "primary":
                 error = RuntimeError("unavailable")
                 error.__cause__ = SimpleProviderError()
@@ -91,6 +98,14 @@ def test_chat_uses_llm_fallback_and_preserves_history(monkeypatch):
     class SimpleProviderError(Exception):
         code = 404
 
+    def build_agent(**kwargs):
+        class Graph:
+            async def ainvoke(self, payload, config):
+                return {"structured_response": await kwargs["model"].ainvoke(payload["messages"])}
+
+        return Graph()
+
+    monkeypatch.setattr(module, "create_deep_agent", build_agent)
     monkeypatch.setattr(module, "ChatGoogleGenerativeAI", Model)
     service = AgentService(
         Settings(
@@ -122,7 +137,11 @@ def test_chat_can_call_tavily_tool(monkeypatch):
     def build_agent(**kwargs):
         class Graph:
             async def ainvoke(self, payload, config):
-                result = await kwargs["tools"][0].ainvoke({"query": "External knowledge"})
+                tools = {t.name: t for t in kwargs["tools"]}
+                await tools["load_skill"].ainvoke({"skill": "verify-problem", "task": "Research"})
+                result = await tools["web_search"].ainvoke({"query": "External knowledge"})
+                await tools["load_skill"].ainvoke({"skill": "read-research-source", "task": "Read"})
+                await tools["crawl_web_markdown"].ainvoke({"urls": ["https://docs.tavily.com/"]})
                 assert "Evidence" in result
                 return {
                     "structured_response": AgentReply(
