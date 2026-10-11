@@ -1572,24 +1572,6 @@ function decodeHtmlEntities(text: string): string {
 		.replace(/&apos;/g, "'");
 }
 
-// Endpoint: Supported Japan & APAC Languages
-app.get("/api/translate/languages", (req, res) => {
-	res.json({
-		region: "Japan & APAC Group",
-		languages: [
-			{ code: "en", name: "English", nativeName: "English", flag: "🌐", region: "Global", country: "International" },
-			{ code: "ja", name: "Japanese", nativeName: "日本語", flag: "🇯🇵", region: "Japan", country: "Japan (日本)" },
-			{ code: "zh-CN", name: "Simplified Chinese", nativeName: "简体中文", flag: "🇨🇳", region: "East Asia", country: "China / Singapore" },
-			{ code: "zh-TW", name: "Traditional Chinese", nativeName: "繁體中文", flag: "🇹🇼", region: "East Asia", country: "Taiwan / Hong Kong" },
-			{ code: "ko", name: "Korean", nativeName: "한국어", flag: "🇰🇷", region: "East Asia", country: "South Korea" },
-			{ code: "id", name: "Indonesian", nativeName: "Bahasa Indonesia", flag: "🇮🇩", region: "Southeast Asia", country: "Indonesia" },
-			{ code: "vi", name: "Vietnamese", nativeName: "Tiếng Việt", flag: "🇻🇳", region: "Southeast Asia", country: "Vietnam" },
-			{ code: "th", name: "Thai", nativeName: "ภาษาไทย", flag: "🇹🇭", region: "Southeast Asia", country: "Thailand" },
-		],
-		primaryEngine: process.env.GOOGLE_CLOUD_TRANSLATION_API_KEY ? "google_cloud_translation_v2" : "google_genai_neural_translator",
-	});
-});
-
 // Endpoint: Dynamic Batch / Text Translation (Cloud Translation + Neural Fallback)
 app.post("/api/translate", async (req, res) => {
 	const { texts, targetLang, sourceLang = "en" } = req.body;
@@ -1603,7 +1585,7 @@ app.post("/api/translate", async (req, res) => {
 		return;
 	}
 
-	const cloudKey = process.env.GOOGLE_CLOUD_TRANSLATION_API_KEY || process.env.GOOGLE_TRANSLATE_API_KEY;
+	const cloudKey = process.env.GOOGLE_CLOUD_TRANSLATION_API_KEY || process.env.GEMINI_API_KEY;
 
 	// 1. Google Cloud Translation Basic (v2 REST API)
 	if (cloudKey) {
@@ -1694,20 +1676,37 @@ app.post("/api/translate/brief", async (req, res) => {
 		return;
 	}
 
+	const langNames: Record<string, string> = {
+		ja: "Japanese (日本語)",
+		"zh-CN": "Simplified Chinese (简体中文)",
+		"zh-TW": "Traditional Chinese (繁體中文)",
+		ko: "Korean (한국어)",
+		id: "Bahasa Indonesia",
+		vi: "Vietnamese (Tiếng Việt)",
+		th: "Thai (ภาษาไทย)",
+	};
+	const targetName = langNames[targetLang] || targetLang;
+
 	try {
-		const textsToTranslate: string[] = [brief.title || "", brief.problemValidation?.coreProblemStatement || "", brief.experimentDesign?.primaryResearchQuestion || "", brief.experimentDesign?.falsifiableHypothesis || "", brief.experimentDesign?.negativeResultValue || "", brief.selectionRationale || ""];
-
-		const dirTitles = (brief.candidateDirections || []).map((d: any) => d.title || "");
-		const dirTheses = (brief.candidateDirections || []).map((d: any) => d.thesis || "");
-		textsToTranslate.push(...dirTitles);
-		textsToTranslate.push(...dirTheses);
-
-		let translations: string[] = [];
+		const clonedBrief = JSON.parse(JSON.stringify(brief));
 		let provider = "google_genai_neural_translator";
+		let translatedSuccessfully = false;
 
-		const cloudKey = process.env.GOOGLE_CLOUD_TRANSLATION_API_KEY || process.env.GOOGLE_TRANSLATE_API_KEY;
+		const cloudKey = process.env.GOOGLE_CLOUD_TRANSLATION_API_KEY || process.env.GEMINI_API_KEY;
 		if (cloudKey) {
 			try {
+				const textsToTranslate: string[] = [brief.title || "", brief.intake?.domain || "", brief.problemValidation?.coreProblemStatement || "", brief.problemValidation?.realWorldImpact || "", brief.knowledgeLandscape?.criticalKnowledgeGap || "", brief.knowledgeLandscape?.whyUnsolvedUntilNow || "", brief.experimentDesign?.primaryResearchQuestion || "", brief.experimentDesign?.falsifiableHypothesis || "", brief.experimentDesign?.negativeResultValue || "", brief.selectionRationale || "", brief.feasibilityAssessment?.budgetVerdict || "", brief.feasibilityAssessment?.keyPrerequisite || ""];
+
+				const dirTitles = (brief.candidateDirections || []).map((d: any) => d.title || "");
+				const dirSummaries = (brief.candidateDirections || []).map((d: any) => d.summary || "");
+				textsToTranslate.push(...dirTitles);
+				textsToTranslate.push(...dirSummaries);
+
+				const baselineNames = (brief.experimentDesign?.baselinesAndControls || []).map((b: any) => b.name || "");
+				const metricNames = (brief.experimentDesign?.dependentVariablesAndMetrics || []).map((m: any) => m.metric || "");
+				textsToTranslate.push(...baselineNames);
+				textsToTranslate.push(...metricNames);
+
 				const url = `https://translation.googleapis.com/language/translate/v2?key=${encodeURIComponent(cloudKey)}`;
 				const response = await fetch(url, {
 					method: "POST",
@@ -1719,27 +1718,129 @@ app.post("/api/translate/brief", async (req, res) => {
 						format: "text",
 					}),
 				});
+
 				if (response.ok) {
 					const data = await response.json();
-					if (data?.data?.translations) {
-						translations = data.data.translations.map((t: any) => decodeHtmlEntities(t.translatedText));
+					if (data?.data?.translations && data.data.translations.length === textsToTranslate.length) {
+						const trans = data.data.translations.map((t: any) => decodeHtmlEntities(t.translatedText));
+						clonedBrief.title = trans[0] || brief.title;
+						if (clonedBrief.intake) {
+							clonedBrief.intake.domain = trans[1] || brief.intake.domain;
+						}
+						if (clonedBrief.problemValidation) {
+							clonedBrief.problemValidation.coreProblemStatement = trans[2] || brief.problemValidation.coreProblemStatement;
+							clonedBrief.problemValidation.realWorldImpact = trans[3] || brief.problemValidation.realWorldImpact;
+						}
+						if (clonedBrief.knowledgeLandscape) {
+							clonedBrief.knowledgeLandscape.criticalKnowledgeGap = trans[4] || brief.knowledgeLandscape.criticalKnowledgeGap;
+							clonedBrief.knowledgeLandscape.whyUnsolvedUntilNow = trans[5] || brief.knowledgeLandscape.whyUnsolvedUntilNow;
+						}
+						if (clonedBrief.experimentDesign) {
+							clonedBrief.experimentDesign.primaryResearchQuestion = trans[6] || brief.experimentDesign.primaryResearchQuestion;
+							clonedBrief.experimentDesign.falsifiableHypothesis = trans[7] || brief.experimentDesign.falsifiableHypothesis;
+							clonedBrief.experimentDesign.negativeResultValue = trans[8] || brief.experimentDesign.negativeResultValue;
+						}
+						clonedBrief.selectionRationale = trans[9] || brief.selectionRationale;
+						if (clonedBrief.feasibilityAssessment) {
+							clonedBrief.feasibilityAssessment.budgetVerdict = trans[10] || brief.feasibilityAssessment.budgetVerdict;
+							clonedBrief.feasibilityAssessment.keyPrerequisite = trans[11] || brief.feasibilityAssessment.keyPrerequisite;
+						}
+
+						let offset = 12;
+						if (Array.isArray(clonedBrief.candidateDirections)) {
+							for (let i = 0; i < clonedBrief.candidateDirections.length; i++) {
+								clonedBrief.candidateDirections[i].title = trans[offset + i] || clonedBrief.candidateDirections[i].title;
+							}
+							offset += clonedBrief.candidateDirections.length;
+							for (let i = 0; i < clonedBrief.candidateDirections.length; i++) {
+								clonedBrief.candidateDirections[i].summary = trans[offset + i] || clonedBrief.candidateDirections[i].summary;
+							}
+							offset += clonedBrief.candidateDirections.length;
+						}
+
+						if (Array.isArray(clonedBrief.experimentDesign?.baselinesAndControls)) {
+							for (let i = 0; i < clonedBrief.experimentDesign.baselinesAndControls.length; i++) {
+								clonedBrief.experimentDesign.baselinesAndControls[i].name = trans[offset + i] || clonedBrief.experimentDesign.baselinesAndControls[i].name;
+							}
+							offset += clonedBrief.experimentDesign.baselinesAndControls.length;
+						}
+
+						if (Array.isArray(clonedBrief.experimentDesign?.dependentVariablesAndMetrics)) {
+							for (let i = 0; i < clonedBrief.experimentDesign.dependentVariablesAndMetrics.length; i++) {
+								clonedBrief.experimentDesign.dependentVariablesAndMetrics[i].metric = trans[offset + i] || clonedBrief.experimentDesign.dependentVariablesAndMetrics[i].metric;
+							}
+						}
+
 						provider = "google_cloud_translation";
+						translatedSuccessfully = true;
 					}
 				}
-			} catch (e) {
-				console.warn("Cloud translation brief error:", e);
+			} catch (cloudErr) {
+				console.warn("Cloud translation brief error, falling back to Gemini:", cloudErr);
 			}
 		}
 
-		if (translations.length !== textsToTranslate.length) {
-			const prompt = `Translate this JSON array of academic research brief components into target language code "${targetLang}".
-Preserve scholarly terminology and academic tone. Return strictly a JSON array of strings:
-${JSON.stringify(textsToTranslate)}`;
+		// Fallback to Gemini Flash Neural Translation
+		if (!translatedSuccessfully) {
+			const payloadToTranslate = {
+				title: brief.title || "",
+				intake: {
+					domain: brief.intake?.domain || "",
+				},
+				problemValidation: {
+					coreProblemStatement: brief.problemValidation?.coreProblemStatement || "",
+					realWorldImpact: brief.problemValidation?.realWorldImpact || "",
+				},
+				knowledgeLandscape: {
+					criticalKnowledgeGap: brief.knowledgeLandscape?.criticalKnowledgeGap || "",
+					whyUnsolvedUntilNow: brief.knowledgeLandscape?.whyUnsolvedUntilNow || "",
+				},
+				selectionRationale: brief.selectionRationale || "",
+				candidateDirections: (brief.candidateDirections || []).map((d: any) => ({
+					id: d.id,
+					title: d.title || "",
+					summary: d.summary || "",
+					whyPursue: d.whyPursue || "",
+				})),
+				experimentDesign: {
+					primaryResearchQuestion: brief.experimentDesign?.primaryResearchQuestion || "",
+					falsifiableHypothesis: brief.experimentDesign?.falsifiableHypothesis || "",
+					negativeResultValue: brief.experimentDesign?.negativeResultValue || "",
+					baselinesAndControls: (brief.experimentDesign?.baselinesAndControls || []).map((b: any) => ({
+						name: b.name || "",
+						rationale: b.rationale || "",
+					})),
+					dependentVariablesAndMetrics: (brief.experimentDesign?.dependentVariablesAndMetrics || []).map((m: any) => ({
+						metric: m.metric || "",
+						targetBenchmark: m.targetBenchmark || "",
+					})),
+				},
+				feasibilityAssessment: {
+					budgetVerdict: brief.feasibilityAssessment?.budgetVerdict || "",
+					keyPrerequisite: brief.feasibilityAssessment?.keyPrerequisite || "",
+				},
+				advisorCritiques: (brief.advisorCritiques || []).map((c: any) => ({
+					category: c.category || "",
+					critique: c.critique || "",
+					actionableAdjustment: c.actionableAdjustment || "",
+				})),
+			};
+
+			const prompt = `You are a world-class academic translator specializing in scientific research, peer review literature, and university research briefs.
+Translate every string value in the following JSON object into ${targetName} (${targetLang}).
+Rules:
+1. Maintain rigorous scholarly tone and correct scientific domain terminology.
+2. Translate all fields comprehensively, including the intake domain (e.g. translate "Artificial Intelligence / Machine Learning" into the target language, e.g. "人工知能 / 機械学習"), baseline control names, evaluation metrics, negative outcome utility statements, and feasibility assessments.
+3. Preserve all keys and JSON structure exactly. Do not alter IDs or numeric scores.
+4. Return ONLY a valid JSON object matching this schema.
+
+JSON to translate:
+${JSON.stringify(payloadToTranslate, null, 2)}`;
 
 			const geminiRes = await callGeminiSafe({
 				contents: prompt,
 				config: { responseMimeType: "application/json" },
-				primaryModel: "gemini-flash-latest",
+				primaryModel: "gemini-3.8-flash",
 			});
 
 			if (geminiRes) {
@@ -1750,40 +1851,95 @@ ${JSON.stringify(textsToTranslate)}`;
 					.replace(/```$/i, "")
 					.trim();
 				const parsed = JSON.parse(cleaned);
-				if (Array.isArray(parsed) && parsed.length === textsToTranslate.length) {
-					translations = parsed;
-					provider = geminiRes.modelUsed;
+
+				if (parsed && typeof parsed === "object") {
+					if (parsed.title) clonedBrief.title = parsed.title;
+					if (parsed.intake?.domain && clonedBrief.intake) {
+						clonedBrief.intake.domain = parsed.intake.domain;
+					}
+					if (parsed.problemValidation) {
+						if (parsed.problemValidation.coreProblemStatement) {
+							clonedBrief.problemValidation.coreProblemStatement = parsed.problemValidation.coreProblemStatement;
+						}
+						if (parsed.problemValidation.realWorldImpact) {
+							clonedBrief.problemValidation.realWorldImpact = parsed.problemValidation.realWorldImpact;
+						}
+					}
+					if (parsed.knowledgeLandscape) {
+						if (parsed.knowledgeLandscape.criticalKnowledgeGap) {
+							clonedBrief.knowledgeLandscape.criticalKnowledgeGap = parsed.knowledgeLandscape.criticalKnowledgeGap;
+						}
+						if (parsed.knowledgeLandscape.whyUnsolvedUntilNow) {
+							clonedBrief.knowledgeLandscape.whyUnsolvedUntilNow = parsed.knowledgeLandscape.whyUnsolvedUntilNow;
+						}
+					}
+					if (parsed.selectionRationale) clonedBrief.selectionRationale = parsed.selectionRationale;
+
+					if (Array.isArray(parsed.candidateDirections) && Array.isArray(clonedBrief.candidateDirections)) {
+						parsed.candidateDirections.forEach((pd: any, idx: number) => {
+							if (clonedBrief.candidateDirections[idx]) {
+								if (pd.title) clonedBrief.candidateDirections[idx].title = pd.title;
+								if (pd.summary) clonedBrief.candidateDirections[idx].summary = pd.summary;
+								if (pd.whyPursue) clonedBrief.candidateDirections[idx].whyPursue = pd.whyPursue;
+							}
+						});
+					}
+
+					if (parsed.experimentDesign) {
+						if (parsed.experimentDesign.primaryResearchQuestion) {
+							clonedBrief.experimentDesign.primaryResearchQuestion = parsed.experimentDesign.primaryResearchQuestion;
+						}
+						if (parsed.experimentDesign.falsifiableHypothesis) {
+							clonedBrief.experimentDesign.falsifiableHypothesis = parsed.experimentDesign.falsifiableHypothesis;
+						}
+						if (parsed.experimentDesign.negativeResultValue) {
+							clonedBrief.experimentDesign.negativeResultValue = parsed.experimentDesign.negativeResultValue;
+						}
+						if (Array.isArray(parsed.experimentDesign.baselinesAndControls) && Array.isArray(clonedBrief.experimentDesign?.baselinesAndControls)) {
+							parsed.experimentDesign.baselinesAndControls.forEach((pb: any, idx: number) => {
+								if (clonedBrief.experimentDesign.baselinesAndControls[idx]) {
+									if (pb.name) clonedBrief.experimentDesign.baselinesAndControls[idx].name = pb.name;
+									if (pb.rationale) clonedBrief.experimentDesign.baselinesAndControls[idx].rationale = pb.rationale;
+								}
+							});
+						}
+						if (Array.isArray(parsed.experimentDesign.dependentVariablesAndMetrics) && Array.isArray(clonedBrief.experimentDesign?.dependentVariablesAndMetrics)) {
+							parsed.experimentDesign.dependentVariablesAndMetrics.forEach((pm: any, idx: number) => {
+								if (clonedBrief.experimentDesign.dependentVariablesAndMetrics[idx]) {
+									if (pm.metric) clonedBrief.experimentDesign.dependentVariablesAndMetrics[idx].metric = pm.metric;
+									if (pm.targetBenchmark) clonedBrief.experimentDesign.dependentVariablesAndMetrics[idx].targetBenchmark = pm.targetBenchmark;
+								}
+							});
+						}
+					}
+
+					if (parsed.feasibilityAssessment && clonedBrief.feasibilityAssessment) {
+						if (parsed.feasibilityAssessment.budgetVerdict) {
+							clonedBrief.feasibilityAssessment.budgetVerdict = parsed.feasibilityAssessment.budgetVerdict;
+						}
+						if (parsed.feasibilityAssessment.keyPrerequisite) {
+							clonedBrief.feasibilityAssessment.keyPrerequisite = parsed.feasibilityAssessment.keyPrerequisite;
+						}
+					}
+
+					if (Array.isArray(parsed.advisorCritiques) && Array.isArray(clonedBrief.advisorCritiques)) {
+						parsed.advisorCritiques.forEach((pc: any, idx: number) => {
+							if (clonedBrief.advisorCritiques[idx]) {
+								if (pc.critique) clonedBrief.advisorCritiques[idx].critique = pc.critique;
+								if (pc.actionableAdjustment) clonedBrief.advisorCritiques[idx].actionableAdjustment = pc.actionableAdjustment;
+							}
+						});
+					}
+
+					provider = geminiRes.modelUsed || "google_genai_neural_translator";
+					translatedSuccessfully = true;
 				}
 			}
 		}
 
-		if (translations.length === textsToTranslate.length) {
-			const clonedBrief = JSON.parse(JSON.stringify(brief));
-			clonedBrief.title = translations[0] || brief.title;
-			if (clonedBrief.problemValidation) {
-				clonedBrief.problemValidation.coreProblemStatement = translations[1] || brief.problemValidation.coreProblemStatement;
-			}
-			if (clonedBrief.experimentDesign) {
-				clonedBrief.experimentDesign.primaryResearchQuestion = translations[2] || brief.experimentDesign.primaryResearchQuestion;
-				clonedBrief.experimentDesign.falsifiableHypothesis = translations[3] || brief.experimentDesign.falsifiableHypothesis;
-				clonedBrief.experimentDesign.negativeResultValue = translations[4] || brief.experimentDesign.negativeResultValue;
-			}
-			clonedBrief.selectionRationale = translations[5] || brief.selectionRationale;
-
-			let offset = 6;
-			if (Array.isArray(clonedBrief.candidateDirections)) {
-				for (let i = 0; i < clonedBrief.candidateDirections.length; i++) {
-					clonedBrief.candidateDirections[i].title = translations[offset + i] || clonedBrief.candidateDirections[i].title;
-				}
-				offset += clonedBrief.candidateDirections.length;
-				for (let i = 0; i < clonedBrief.candidateDirections.length; i++) {
-					clonedBrief.candidateDirections[i].thesis = translations[offset + i] || clonedBrief.candidateDirections[i].thesis;
-				}
-			}
-
+		if (translatedSuccessfully) {
 			clonedBrief.isLocalized = true;
 			clonedBrief.localizedLang = targetLang;
-
 			res.json({ translatedBrief: clonedBrief, provider });
 			return;
 		}
