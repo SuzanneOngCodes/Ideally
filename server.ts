@@ -1585,7 +1585,7 @@ app.post("/api/translate", async (req, res) => {
 		return;
 	}
 
-	const cloudKey = process.env.GOOGLE_CLOUD_TRANSLATION_API_KEY || process.env.GEMINI_API_KEY;
+	const cloudKey = process.env.GOOGLE_CLOUD_TRANSLATION_API_KEY || process.env.GEMINI_TRANSLATION_API_KEY;
 
 	// 1. Google Cloud Translation Basic (v2 REST API)
 	if (cloudKey) {
@@ -1692,7 +1692,7 @@ app.post("/api/translate/brief", async (req, res) => {
 		let provider = "google_genai_neural_translator";
 		let translatedSuccessfully = false;
 
-		const cloudKey = process.env.GOOGLE_CLOUD_TRANSLATION_API_KEY || process.env.GEMINI_API_KEY;
+		const cloudKey = process.env.GOOGLE_CLOUD_TRANSLATION_API_KEY || process.env.GEMINI_TRANSLATION_API_KEY;
 		if (cloudKey) {
 			try {
 				const textsToTranslate: string[] = [brief.title || "", brief.intake?.domain || "", brief.problemValidation?.coreProblemStatement || "", brief.problemValidation?.realWorldImpact || "", brief.knowledgeLandscape?.criticalKnowledgeGap || "", brief.knowledgeLandscape?.whyUnsolvedUntilNow || "", brief.experimentDesign?.primaryResearchQuestion || "", brief.experimentDesign?.falsifiableHypothesis || "", brief.experimentDesign?.negativeResultValue || "", brief.selectionRationale || "", brief.feasibilityAssessment?.budgetVerdict || "", brief.feasibilityAssessment?.keyPrerequisite || ""];
