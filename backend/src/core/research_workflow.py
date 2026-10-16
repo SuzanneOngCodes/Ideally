@@ -55,7 +55,7 @@ class ResearchWorkflow:
             """
             content = active_skill(SKILL_STAGES[skill], source="load_skill")
             self.loaded.add(skill)
-            log_event("skill.selected", skill=skill, task=task)
+            log_event("skill.selected", skill=skill)
             return json.dumps({"status": "success", "skill": skill, "instructions": content})
 
         @tool
