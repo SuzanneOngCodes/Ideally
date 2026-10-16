@@ -16,6 +16,8 @@ from src.core.logger import configure_logging, error_fields, log_context, log_ev
 from src.modules.auditor.router import router as auditor_router
 from src.modules.auditor.service import CitationAuditService
 from src.modules.chat.router import router as chat_router
+from src.modules.evidence.router import router as evidence_router
+from src.modules.evidence.service import EvidenceSearchService
 from src.modules.research.router import router as research_router
 from src.modules.session.router import router as session_router
 from src.share.database import Base, create_database
@@ -77,6 +79,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     app.state.db_factory = db_factory
     app.state.agent = AgentService(settings)
+    app.state.evidence = EvidenceSearchService(settings)
     app.state.auditor = CitationAuditService(settings)
     app.add_middleware(
         CORSMiddleware,
@@ -89,6 +92,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(auditor_router, prefix="/api/v1")
     app.include_router(session_router, prefix="/api/v1")
     app.include_router(research_router, prefix="/api/v1")
+    app.include_router(evidence_router, prefix="/api/v1")
 
     @app.get("/health", tags=["health"])
     def health(request: Request):

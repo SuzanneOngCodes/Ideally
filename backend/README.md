@@ -217,3 +217,8 @@ bước bắt buộc; nếu vẫn bỏ qua, request trả lỗi thay vì coi wor
 3 URL/lần và 2 lần crawl/lượt chat. Crawl lỗi được trả cho model để nêu giới hạn;
 không tự nâng nguồn chỉ có snippet thành bằng chứng đã đọc. Tool trả phần đầu
 Markdown có giới hạn và cờ `truncated`, không cam kết đã đọc toàn bộ tài liệu.
+
+Evidence Explorer gọi `POST /api/v1/evidence/web` và
+`POST /api/v1/evidence/academic` trên FastAPI qua proxy Express. FastAPI gọi
+Crawl4AI Cloud `GET /search`, chuẩn hóa kết quả và bổ sung metadata arXiv nếu có.
+Khi chưa đọc toàn văn, nguồn được đánh dấu `search_snippet` hoặc `abstract_only`.

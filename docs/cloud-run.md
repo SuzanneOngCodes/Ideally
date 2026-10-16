@@ -25,8 +25,9 @@ Tạo service account nếu chưa có:
 gcloud iam service-accounts create ideally-runtime --display-name="Ideally Cloud Run"
 ```
 
-Tạo hai secret `ideally-google-api-key` và `ideally-tavily-api-key` trong
+Tạo hai secret `ideally-google-api-key` và `ideally-crawl4ai-api-key` trong
 Secret Manager bằng Google Cloud Console, thêm phiên bản chứa key tương ứng.
+`ideally-tavily-api-key` là tùy chọn để tìm kiếm web dự phòng.
 Không đưa `.env` hay API key vào image. `.dockerignore` và `.gcloudignore`
 đã loại bỏ các file này khỏi build/upload.
 
@@ -34,7 +35,7 @@ Cấp quyền đọc từng secret cho service account:
 
 ```bash
 gcloud secrets add-iam-policy-binding ideally-google-api-key --member="serviceAccount:${IDEALLY_RUNTIME_SA}" --role=roles/secretmanager.secretAccessor
-gcloud secrets add-iam-policy-binding ideally-tavily-api-key --member="serviceAccount:${IDEALLY_RUNTIME_SA}" --role=roles/secretmanager.secretAccessor
+gcloud secrets add-iam-policy-binding ideally-crawl4ai-api-key --member="serviceAccount:${IDEALLY_RUNTIME_SA}" --role=roles/secretmanager.secretAccessor
 ```
 
 ## Deploy
@@ -49,11 +50,13 @@ gcloud run deploy "$IDEALLY_SERVICE" \
   --cpu 1 \
   --concurrency 8 \
   --timeout 240 \
-  --set-secrets GOOGLE_API_KEY=ideally-google-api-key:latest,GEMINI_API_KEY=ideally-google-api-key:latest,TAVILY_API_KEY=ideally-tavily-api-key:latest \
+  --set-secrets GOOGLE_API_KEY=ideally-google-api-key:latest,GEMINI_API_KEY=ideally-google-api-key:latest,CRAWL4AI_API_KEY=ideally-crawl4ai-api-key:latest \
   --update-env-vars NODE_ENV=production,PYTHON_BACKEND_URL=http://127.0.0.1:8000,GEMINI_MODEL=gemini-3.8-flash,GEMINI_FALLBACK_MODEL=gemini-3.1-flash-lite
 ```
 
 Lệnh dùng Dockerfile hiện tại và Cloud Build, không cần Docker daemon local.
+Nếu dùng Tavily làm dự phòng, cấp quyền đọc secret `ideally-tavily-api-key` rồi
+thêm `TAVILY_API_KEY=ideally-tavily-api-key:latest` qua `gcloud run services update --update-secrets`.
 Giữ chính sách truy cập hiện có của service. Với service mới, lệnh có thể hỏi
 có cho phép truy cập công khai không; lựa chọn theo nhu cầu của bạn.
 Các API session chưa có auth riêng; quyền truy cập hiện được kiểm soát ở Cloud Run.
@@ -98,6 +101,10 @@ curl -X POST "$IDEALLY_URL/api/v1/chat" \
   -H "Authorization: Bearer $(gcloud auth print-identity-token)" \
   -H 'Content-Type: application/json' \
   -d '{"message":"Tìm tài liệu chính thức Tavily và tổng hợp ngắn kèm nguồn."}'
+curl -X POST "$IDEALLY_URL/api/v1/evidence/web" \
+  -H "Authorization: Bearer $(gcloud auth print-identity-token)" \
+  -H 'Content-Type: application/json' \
+  -d '{"query":"Crawl4AI Cloud API documentation"}'
 ```
 
 Tài khoản dùng kiểm tra cần quyền invoke nếu service private.
