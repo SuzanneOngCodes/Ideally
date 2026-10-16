@@ -5,13 +5,10 @@ from sqlalchemy.orm import Session
 
 from src.core.agent import AgentService
 from src.core.errors import AgentUnavailableError
-from src.core.logger import log_event
+from src.core.logger import error_fields, log_event
 from src.modules.session.models import ChatMessage, ChatSession
 from src.modules.session.repository import claim_version, get_session
 from src.modules.session.schemas import MessageCreate, MessageRead, MessageResponse
-
-logger = logging.getLogger(__name__)
-
 
 async def send_message(
     db: Session, session_id: str | None, payload: MessageCreate, agent: AgentService
@@ -21,28 +18,30 @@ async def send_message(
         raise HTTPException(422, "Message must not be blank")
     version, count = 0, 0
     history = []
+    session = None
     if session_id is not None:
-        session = get_session(db, session_id)
-        version, count = session.version, len(session.messages)
-        history = [
-            {"role": m.role, "content": m.content}
-            for m in session.messages[-agent.settings.max_history_messages :]
-        ]
+        session = db.get(ChatSession, session_id)
+        if session is not None:
+            version, count = session.version, len(session.messages)
+            history = [
+                {"role": m.role, "content": m.content}
+                for m in session.messages[-agent.settings.max_history_messages :]
+            ]
         db.rollback()  # Release the read transaction before waiting for the provider.
-    log_event("chat.received", session_id=session_id, research=payload.research)
+    log_event("chat.message.received", message="Đã nhận tin nhắn", session_id=session_id, research=payload.research)
     history.append({"role": "user", "content": content})
     try:
         result = await agent.reply(history, payload.research)
     except AgentUnavailableError as error:
+        log_event("agent.run.failed", level=logging.ERROR, message="Agent không khả dụng", **error_fields(error))
         raise HTTPException(503, str(error)) from error
     except TimeoutError as error:
+        log_event("agent.run.failed", level=logging.ERROR, message="Agent xử lý quá thời hạn", **error_fields(error))
         raise HTTPException(504, "AI request timed out; retry your message") from error
     except Exception as error:
         # Do not log provider exceptions containing prompts, keys, or response bodies.
         code = getattr(error, "code", None) or getattr(error.__cause__, "code", None)
-        logger.error(
-            "AI request failed: error_type=%s provider_status=%s", type(error).__name__, code
-        )
+        log_event("dependency.request.failed", level=logging.ERROR, message="Gọi AI thất bại", dependency="llm", error_type=type(error).__name__, provider_status=code)
         if code == 404:
             raise HTTPException(
                 502,
@@ -62,8 +61,12 @@ async def send_message(
                 headers={"Retry-After": "10"},
             ) from error
         raise HTTPException(502, "AI provider request failed") from error
-    if session_id is None:
-        session = ChatSession(title=content[:200])
+    if session is None:
+        session = (
+            ChatSession(title=content[:200])
+            if session_id is None
+            else ChatSession(id=session_id, title=content[:200])
+        )
         db.add(session)
         db.flush()
         session_id = session.id
@@ -83,7 +86,7 @@ async def send_message(
             updated_research["reasoning_map"] = session.research.get("reasoning_map")
         session.research = updated_research
     db.commit()
-    log_event("chat.saved", session_id=str(session_id))
+    log_event("chat.response.completed", message="Đã lưu phản hồi chat", session_id=str(session_id))
     return MessageResponse(
         session_id=session_id,
         user_message=MessageRead.model_validate(user),

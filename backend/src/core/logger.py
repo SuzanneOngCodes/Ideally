@@ -1,4 +1,4 @@
-"""Structured application events with bounded, redacted diagnostic fields."""
+"""Shared structured logging configuration and safe event helpers."""
 
 import json
 import logging
@@ -10,7 +10,8 @@ from pathlib import Path
 
 log_context: ContextVar[dict] = ContextVar("log_context", default={})
 _secrets: tuple[str, ...] = ()
-_sensitive = re.compile(r"api.?key|token|password|secret|authorization|cookie|credential", re.I)
+_sensitive = re.compile(r"api.?key|token|password|secret|authorization|cookie|credential|prompt|content|message", re.I)
+_service = "ideally-api"
 
 
 def sanitize(value, depth=0):
@@ -18,19 +19,7 @@ def sanitize(value, depth=0):
         return "[max depth]"
     if isinstance(value, dict):
         return {
-            str(k): (
-                "[REDACTED]"
-                if _sensitive.search(str(k))
-                and str(k)
-                not in {
-                    "input_tokens",
-                    "output_tokens",
-                    "total_tokens",
-                    "input_token_details",
-                    "output_token_details",
-                }
-                else sanitize(v, depth + 1)
-            )
+            str(k): "[REDACTED]" if _sensitive.search(str(k)) else sanitize(v, depth + 1)
             for k, v in list(value.items())[:40]
         }
     if isinstance(value, (list, tuple)):
@@ -41,19 +30,13 @@ def sanitize(value, depth=0):
     for secret in _secrets:
         text = text.replace(secret, "[REDACTED]")
     text = re.sub(r"(?i)(Bearer\s+)\S+", r"\1[REDACTED]", text)
-    text = re.sub(
-        r"(?i)((?:api[_-]?key|token|password|secret|authorization)=)[^&\s]+",
-        r"\1[REDACTED]",
-        text,
-    )
-    return text if len(text) <= 2000 else text[:2000] + "…[truncated]"
+    text = re.sub(r"(?i)((?:api[_-]?key|token|password|secret|authorization)=)[^&\s]+", r"\1[REDACTED]", text)
+    return text if len(text) <= 1000 else text[:1000] + "…[truncated]"
 
 
 def error_fields(error: BaseException) -> dict:
-    # Locations diagnose NameError/etc. without dumping provider bodies or local variables.
     return {
         "error_type": type(error).__name__,
-        "missing_name": error.name if isinstance(error, NameError) else None,
         "provider_status": getattr(error, "code", None) or getattr(error.__cause__, "code", None),
         "frames": [
             {"file": Path(f.filename).name, "line": f.lineno, "function": f.name}
@@ -62,38 +45,37 @@ def error_fields(error: BaseException) -> dict:
     }
 
 
-def log_event(event: str, level=logging.INFO, **fields) -> None:
-    payload = sanitize({**log_context.get(), **fields, "event": event})
-    encoded = json.dumps(payload, ensure_ascii=False)
-    if len(encoded) > 24000:
-        # Bound unusually large nested arguments while retaining event correlation fields.
-        payload = {
-            k: (str(v)[:2000] + "…[truncated]" if len(str(v)) > 2000 else v)
-            for k, v in payload.items()
-        }
-        encoded = json.dumps(payload, ensure_ascii=False)
-    logging.getLogger("ideally.events").log(level, encoded)
+def log_event(event: str, level=logging.INFO, message: str | None = None, **fields) -> None:
+    safe = sanitize({**log_context.get(), **fields})
+    logging.getLogger("ideally.events").log(
+        level, message or event.replace(".", " "), extra={"event_name": event, "event_context": safe}
+    )
 
 
 class JsonFormatter(logging.Formatter):
     def format(self, record):
+        context = dict(log_context.get())
+        context.update(getattr(record, "event_context", {}))
+        trace_id = context.pop("trace_id", "-")
+        event = getattr(record, "event_name", "application.log")
+        message = sanitize(record.getMessage())
         data = {
-            "timestamp": datetime.fromtimestamp(record.created, UTC).isoformat(),
+            "timestamp": datetime.fromtimestamp(record.created, UTC).isoformat(timespec="milliseconds").replace("+00:00", "Z"),
             "level": record.levelname,
-            "logger": record.name,
+            "service": _service,
+            "trace_id": trace_id,
+            "event": event,
+            "message": message,
+            "context": sanitize(context),
         }
-        if record.name == "ideally.events":
-            data.update(json.loads(record.getMessage()))
-        else:
-            data.update(log_context.get())
-            data["message"] = sanitize(record.getMessage())
         if record.exc_info and record.exc_info[1]:
-            data.update(error_fields(record.exc_info[1]))
+            data["context"] = {**data["context"], **error_fields(record.exc_info[1])}
         return json.dumps(data, ensure_ascii=False)
 
 
-def configure_logging(level: str, secrets: tuple[str, ...] = ()) -> None:
-    global _secrets
+def configure_logging(level: str = "INFO", secrets: tuple[str, ...] = (), service: str = "ideally-api") -> None:
+    global _secrets, _service
+    _service = service
     _secrets = tuple(set(_secrets).union(s for s in secrets if s))
     root = logging.getLogger()
     root.setLevel(getattr(logging, level.upper(), logging.INFO))
@@ -103,5 +85,9 @@ def configure_logging(level: str, secrets: tuple[str, ...] = ()) -> None:
         handler.ideally_handler = True
         root.addHandler(handler)
     handler.setFormatter(JsonFormatter())
-    for name in ("httpx", "httpx2", "httpcore"):
+    for name in ("httpx", "httpcore", "uvicorn.access"):
         logging.getLogger(name).setLevel(logging.WARNING)
+
+
+def get_logger(name: str) -> logging.Logger:
+    return logging.getLogger(name)

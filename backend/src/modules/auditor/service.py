@@ -96,7 +96,7 @@ class CitationAuditService:
                     })
                 return results
         except Exception as e:
-            logger.warning(f"urllib arXiv backend search failed: {str(e)}")
+            log_event("dependency.request.failed", level=logging.WARNING, message="arXiv search failed", dependency="arxiv", **error_fields(e))
         return []
 
     def _sync_search_tavily(self, query: str) -> List[Dict[str, Any]]:
@@ -122,7 +122,7 @@ class CitationAuditService:
                 res_data = json.loads(response.read().decode('utf-8'))
                 return [{"title": r.get("title"), "url": r.get("url")} for r in res_data.get("results", [])]
         except Exception as e:
-            logger.warning(f"urllib Tavily backend search failed: {str(e)}")
+            log_event("dependency.request.failed", level=logging.WARNING, message="Tavily search failed", dependency="tavily", **error_fields(e))
         return []
 
     async def _verify_single_citation(self, citation: Dict[str, Any]) -> Dict[str, Any]:

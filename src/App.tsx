@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import { useState, useCallback } from "react";
+import { useState } from "react";
 import { Header, NavTab } from "./components/Header";
 import { ResearchWorkflowRibbon } from "./components/ResearchWorkflowRibbon";
 import { MethodologyModal } from "./components/MethodologyModal";
@@ -36,22 +36,7 @@ export default function App() {
 	const [activeTab, setActiveTab] = useState<NavTab>("home");
 	const [audienceMode, setAudienceMode] = useState<AudienceMode>("beginner");
 	const [advisorQuery, setAdvisorQuery] = useState<string>("");
-	const [chatSessionId, updateChatSessionId] = useState<string | null>(() => {
-		try {
-			return localStorage.getItem("ideally.defaultChatSession");
-		} catch {
-			return null;
-		}
-	});
-	const setChatSessionId = useCallback((sessionId: string | null) => {
-		updateChatSessionId(sessionId);
-		try {
-			if (sessionId) localStorage.setItem("ideally.defaultChatSession", sessionId);
-			else localStorage.removeItem("ideally.defaultChatSession");
-		} catch {
-			/* Session still works when browser storage is unavailable. */
-		}
-	}, []);
+	const [chatSessionId, setChatSessionId] = useState<string | null>(null);
 	const [auditCustomText, setAuditCustomText] = useState<string>("");
 	const [isPresetsOpen, setIsPresetsOpen] = useState(false);
 	const [isMethodologyOpen, setIsMethodologyOpen] = useState(false);
@@ -71,6 +56,11 @@ export default function App() {
 	const showStatus = (msg: string) => {
 		setStatusMessage(msg);
 		setTimeout(() => setStatusMessage(null), 3500);
+	};
+
+	const handleSelectTab = (tab: NavTab) => {
+		if (tab === "workspace") setChatSessionId(null);
+		setActiveTab(tab);
 	};
 
 	const handleAudienceModeToggle = () => {
@@ -107,6 +97,7 @@ export default function App() {
 			if (query) {
 				setAdvisorQuery(query);
 			}
+			setChatSessionId(null);
 			setActiveTab("workspace");
 			showStatus("Routed to Interactive Research Workspace");
 		}
@@ -286,7 +277,7 @@ export default function App() {
 	return (
 		<div className='min-h-screen bg-slate-50 text-slate-900 flex flex-col font-sans'>
 			{/* Global Header */}
-			<Header activeTab={activeTab} onSelectTab={setActiveTab} onOpenPresets={() => setIsPresetsOpen(true)} onNewIntake={handleNewIntake} onExport={handleExportBrief} hasActiveBrief={!!currentBrief} onOpenMethodology={() => setIsMethodologyOpen(true)} onOpenSearch={() => setIsSearchOpen(true)} onOpenGlossary={handleOpenGlossary} onOpenPrinciples={() => setIsPrinciplesOpen(true)} onOpenTechStack={() => setIsTechStackOpen(true)} />
+			<Header activeTab={activeTab} onSelectTab={handleSelectTab} onOpenPresets={() => setIsPresetsOpen(true)} onNewIntake={handleNewIntake} onExport={handleExportBrief} hasActiveBrief={!!currentBrief} onOpenMethodology={() => setIsMethodologyOpen(true)} onOpenSearch={() => setIsSearchOpen(true)} onOpenGlossary={handleOpenGlossary} onOpenPrinciples={() => setIsPrinciplesOpen(true)} onOpenTechStack={() => setIsTechStackOpen(true)} />
 
 			{/* Guided Research Journey Ribbon — only shown when navigating the 5 linear brief stages */}
 			{currentBrief && ["problem", "knowledge", "tradeoffs", "experiment", "brief"].includes(activeTab) && <ResearchWorkflowRibbon activeTab={activeTab} onSelectTab={setActiveTab} brief={currentBrief} />}

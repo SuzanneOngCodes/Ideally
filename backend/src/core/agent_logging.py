@@ -30,7 +30,7 @@ class AgentLogHandler(AsyncCallbackHandler):
             f"{kind}.error" if error is not None else f"{kind}.end",
             level=logging.WARNING if error is not None else logging.INFO,
             run_id=str(run_id),
-            **{k: v for k, v in initial.items() if k != "params"},
+            **{k: v for k, v in initial.items() if k not in {"params", "input_str"}},
             duration_ms=round((perf_counter() - started) * 1000, 2),
             **(error_fields(error) if error is not None else {}),
             **fields,
@@ -62,7 +62,7 @@ class AgentLogHandler(AsyncCallbackHandler):
                         run_id=str(run_id),
                         tool_call_id=call.get("id"),
                         tool=call.get("name"),
-                        params=call.get("args"),
+                        argument_count=len(call.get("args", {})) if isinstance(call.get("args"), dict) else None,
                     )
         self.finish("model", run_id, usage=usage)
 
@@ -82,7 +82,7 @@ class AgentLogHandler(AsyncCallbackHandler):
             run_id,
             parent_run_id,
             tool=(serialized or {}).get("name", kwargs.get("name", "unknown")),
-            params=inputs,
+            argument_count=len(inputs) if isinstance(inputs, dict) else None,
         )
 
     async def on_tool_end(self, output, *, run_id, **kwargs):
@@ -97,24 +97,7 @@ class AgentLogHandler(AsyncCallbackHandler):
                 pass
         if str(content).lstrip().lower().startswith("error:"):
             status = "error"
-        initial = self.finish("tool", run_id, status=status, output_chars=len(str(content)))
-        params = initial.get("params")
-        path = params.get("file_path", "") if isinstance(params, dict) else ""
-        if (
-            initial.get("tool") == "read_file"
-            and path.startswith("/skills/")
-            and path.endswith("/SKILL.md")
-        ):
-            # A returned filesystem error is not a successful skill load.
-            failed = status == "error" or str(content).lstrip().lower().startswith("error")
-            log_event(
-                "skill.load.error" if failed else "skill.loaded",
-                run_id=str(run_id),
-                skill=path.split("/")[-2],
-                path=path,
-                source="read_file",
-                scope="requested_lines",
-            )
+        self.finish("tool", run_id, status=status, output_chars=len(str(content)))
 
     async def on_tool_error(self, error, *, run_id, **kwargs):
         self.finish("tool", run_id, error=error)

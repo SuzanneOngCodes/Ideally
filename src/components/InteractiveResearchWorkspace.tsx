@@ -188,12 +188,12 @@ export const InteractiveResearchWorkspace: React.FC<InteractiveResearchWorkspace
     setIsSending(true);
 
     try {
-      const res = await fetch('/api/v1/chat', {
+      const sessionId = chatSessionId || crypto.randomUUID();
+      const res = await fetch(`/api/v1/${encodeURIComponent(sessionId)}/chat`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           message: query.trim(),
-          session_id: chatSessionId,
           research,
         }),
       });
