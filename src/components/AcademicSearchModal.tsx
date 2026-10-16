@@ -24,6 +24,8 @@ interface AcademicSearchModalProps {
   onAddSourceToBrief?: (source: StructuredEvidenceSource) => void;
 }
 
+const EVIDENCE_REQUEST_TIMEOUT_MS = 210_000;
+
 export const AcademicSearchModal: React.FC<AcademicSearchModalProps> = ({
   isOpen,
   onClose,
@@ -38,7 +40,11 @@ export const AcademicSearchModal: React.FC<AcademicSearchModalProps> = ({
   const [webResults, setWebResults] = useState<WebSearchResult[]>([]);
   const [addedIds, setAddedIds] = useState<Set<string>>(new Set());
   const [providerUsed, setProviderUsed] = useState<string>('');
+  const [webEngine, setWebEngine] = useState<string>('');
+  const [hasSearchedAcademic, setHasSearchedAcademic] = useState(false);
+  const [hasSearchedWeb, setHasSearchedWeb] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
+  const [searchedAcademicQuery, setSearchedAcademicQuery] = useState('');
 
   if (!isOpen) return null;
 
@@ -46,28 +52,36 @@ export const AcademicSearchModal: React.FC<AcademicSearchModalProps> = ({
     if (!query.trim() || isLoading) return;
     setIsLoading(true);
     setErrorMsg(null);
+    setAcademicResults([]);
+    setProviderUsed('');
+    setHasSearchedAcademic(false);
+    const searchQuery = query.trim();
 
     try {
-      const res = await fetch('/api/search/academic', {
+      const res = await fetch('/api/v1/evidence/academic', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
+        signal: AbortSignal.timeout(EVIDENCE_REQUEST_TIMEOUT_MS),
         body: JSON.stringify({
-          query: query.trim(),
+          query: searchQuery,
           source: academicSource,
           limit: 8,
         }),
       });
 
       if (!res.ok) {
-        throw new Error(`Academic search failed (${res.status})`);
+        const body = await res.json().catch(() => ({}));
+        throw new Error(typeof body.detail === 'string' ? body.detail : body.error || `Academic search failed (${res.status})`);
       }
 
       const data = await res.json();
       setAcademicResults(data.results || []);
-      setProviderUsed(data.provider || 'arxiv');
+      setProviderUsed(data.provider || 'none');
+      setSearchedAcademicQuery(searchQuery);
+      setHasSearchedAcademic(true);
     } catch (err: any) {
       console.error('Academic search error:', err);
-      setErrorMsg(err.message || 'Unable to fetch academic papers.');
+      setErrorMsg(err?.name === 'TimeoutError' ? 'Academic search timed out. Please try again.' : err.message || 'Unable to fetch academic papers.');
     } finally {
       setIsLoading(false);
     }
@@ -77,23 +91,30 @@ export const AcademicSearchModal: React.FC<AcademicSearchModalProps> = ({
     if (!query.trim() || isLoading) return;
     setIsLoading(true);
     setErrorMsg(null);
+    setWebResults([]);
+    setWebEngine('');
+    setHasSearchedWeb(false);
 
     try {
-      const res = await fetch('/api/search/web', {
+      const res = await fetch('/api/v1/evidence/web', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
+        signal: AbortSignal.timeout(EVIDENCE_REQUEST_TIMEOUT_MS),
         body: JSON.stringify({ query: query.trim() }),
       });
 
       if (!res.ok) {
-        throw new Error(`Web search failed (${res.status})`);
+        const body = await res.json().catch(() => ({}));
+        throw new Error(typeof body.detail === 'string' ? body.detail : body.error || `Web search failed (${res.status})`);
       }
 
       const data = await res.json();
       setWebResults(data.results || []);
+      setWebEngine(data.engine || '');
+      setHasSearchedWeb(true);
     } catch (err: any) {
       console.error('Web search error:', err);
-      setErrorMsg(err.message || 'Unable to search web sources.');
+      setErrorMsg(err?.name === 'TimeoutError' ? 'Web search timed out. Please try again.' : err.message || 'Unable to search web sources.');
     } finally {
       setIsLoading(false);
     }
@@ -109,13 +130,17 @@ export const AcademicSearchModal: React.FC<AcademicSearchModalProps> = ({
       yearOrDate: paper.yearOrDate,
       venueOrPublisher: paper.venueOrPublisher,
       url: paper.url,
-      category: 'causes',
-      stance: 'supporting',
-      reviewScope: 'full_paper',
-      isPrimarySource: true,
-      methodSummary: `Empirical study retrieved via ${paper.sourceType.toUpperCase()} API addressing "${query}".`,
-      findingsSummary: paper.abstract.slice(0, 220) + '...',
-      limitations: 'Contextual to specific model scale, batch size, and experimental hardware configuration.',
+      category: 'existence',
+      stance: 'unclassified',
+      reviewScope: paper.sourceType === 'crawl4ai_discovery' ? 'search_snippet' : 'abstract_only',
+      isPrimarySource: paper.sourceType === 'arxiv',
+      methodSummary: paper.sourceType === 'crawl4ai_discovery'
+        ? `Found while searching for "${searchedAcademicQuery}"; the original paper and its methods have not been reviewed.`
+        : 'Paper metadata and abstract from the academic index; methods have not been reviewed.',
+      findingsSummary: paper.abstract.slice(0, 220) || 'Read the original paper before recording findings.',
+      limitations: paper.sourceType === 'crawl4ai_discovery'
+        ? 'Search snippet only. Authors, publication date, methods, and findings require verification.'
+        : 'Abstract only. Full paper, methods, and applicability require verification.',
       excerpt: paper.abstract.slice(0, 180),
     };
 
@@ -156,7 +181,7 @@ export const AcademicSearchModal: React.FC<AcademicSearchModalProps> = ({
         {/* Tab Navigation */}
         <div className="px-6 pt-3 border-b border-slate-200 flex items-center gap-4 bg-white text-xs font-semibold">
           <button
-            onClick={() => setActiveTab('academic')}
+            onClick={() => { setActiveTab('academic'); setErrorMsg(null); }}
             className={`pb-2.5 flex items-center gap-1.5 border-b-2 transition-colors ${
               activeTab === 'academic'
                 ? 'border-slate-900 text-slate-900'
@@ -168,7 +193,7 @@ export const AcademicSearchModal: React.FC<AcademicSearchModalProps> = ({
           </button>
 
           <button
-            onClick={() => setActiveTab('web')}
+            onClick={() => { setActiveTab('web'); setErrorMsg(null); }}
             className={`pb-2.5 flex items-center gap-1.5 border-b-2 transition-colors ${
               activeTab === 'web'
                 ? 'border-slate-900 text-slate-900'
@@ -176,11 +201,11 @@ export const AcademicSearchModal: React.FC<AcademicSearchModalProps> = ({
             }`}
           >
             <Globe className="w-4 h-4" />
-            <span>Web & Systems News (Tavily / Google CSE)</span>
+            <span>Web & Systems News (Crawl4AI)</span>
           </button>
 
           <button
-            onClick={() => setActiveTab('cloud_run')}
+            onClick={() => { setActiveTab('cloud_run'); setErrorMsg(null); }}
             className={`pb-2.5 flex items-center gap-1.5 border-b-2 transition-colors ${
               activeTab === 'cloud_run'
                 ? 'border-slate-900 text-slate-900'
@@ -216,7 +241,7 @@ export const AcademicSearchModal: React.FC<AcademicSearchModalProps> = ({
                   onChange={(e: any) => setAcademicSource(e.target.value)}
                   className="px-3 py-2.5 rounded-xl border border-slate-300 text-xs text-slate-700 bg-white focus:outline-none focus:ring-2 focus:ring-slate-900"
                 >
-                  <option value="all">Auto (arXiv + Semantic Scholar)</option>
+                  <option value="all">Auto (paper discovery + indexes)</option>
                   <option value="arxiv">arXiv API (Direct / Free)</option>
                   <option value="semantic_scholar">Semantic Scholar Graph</option>
                 </select>
@@ -244,11 +269,11 @@ export const AcademicSearchModal: React.FC<AcademicSearchModalProps> = ({
               <div className="flex items-center justify-between text-[11px] text-slate-500 bg-slate-50 px-3 py-2 rounded-lg border border-slate-200">
                 <span className="flex items-center gap-1">
                   <ShieldCheck className="w-3.5 h-3.5 text-emerald-600" />
-                  <span>Evidence Principle #2 & #9: Verified against primary paper repositories without synthetic fabrication.</span>
+                  <span>Evidence Principle #2 & #9: Search previews require source review before citing findings.</span>
                 </span>
                 {providerUsed && (
                   <span className="font-mono-tabular font-medium text-slate-700">
-                    Source: {providerUsed.toUpperCase()} API
+                    Source: {providerUsed === 'crawl4ai_discovery' ? 'Crawl4AI discovery' : providerUsed === 'crawl4ai+arxiv' ? 'Crawl4AI + arXiv metadata' : `${providerUsed.toUpperCase()} API`}
                   </span>
                 )}
               </div>
@@ -264,7 +289,7 @@ export const AcademicSearchModal: React.FC<AcademicSearchModalProps> = ({
               {academicResults.length === 0 && !isLoading ? (
                 <div className="py-12 text-center text-slate-400 space-y-2">
                   <BookOpen className="w-8 h-8 mx-auto text-slate-300" />
-                  <p className="font-medium text-slate-600">Enter a query above to query arXiv or Semantic Scholar in real time.</p>
+                  <p className="font-medium text-slate-600">{hasSearchedAcademic ? 'No matching papers found. Try shorter keywords or a different source.' : 'Enter a query above to search arXiv and Semantic Scholar.'}</p>
                   <p className="text-[11px] text-slate-400">
                     Suggested: "transformer classification latency", "speculative decoding bounds", "support ticket NLP"
                   </p>
@@ -282,10 +307,10 @@ export const AcademicSearchModal: React.FC<AcademicSearchModalProps> = ({
                           <div className="space-y-1">
                             <div className="flex flex-wrap items-center gap-2">
                               <span className="px-2 py-0.5 rounded text-[10px] font-semibold bg-blue-50 text-blue-800 border border-blue-200">
-                                {paper.sourceType === 'arxiv' ? 'arXiv Preprint' : 'Semantic Scholar'}
+                                {paper.sourceType === 'crawl4ai_discovery' ? 'Search preview' : paper.sourceType === 'arxiv' ? 'arXiv Preprint' : 'Semantic Scholar'}
                               </span>
                               <span className="text-[10px] text-slate-500 font-mono-tabular">
-                                {paper.yearOrDate} · {paper.venueOrPublisher}
+                                {[paper.yearOrDate, paper.venueOrPublisher].filter(Boolean).join(' · ')}
                               </span>
                               {paper.isOpenAccess && (
                                 <span className="px-1.5 py-0.5 rounded text-[9px] font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200">
@@ -344,9 +369,7 @@ export const AcademicSearchModal: React.FC<AcademicSearchModalProps> = ({
                           </div>
                         </div>
 
-                        <p className="text-slate-600 text-[11px] leading-relaxed line-clamp-3">
-                          {paper.abstract}
-                        </p>
+                        {paper.abstract && <p className="text-slate-600 text-[11px] leading-relaxed line-clamp-3">{paper.abstract}</p>}
 
                         {paper.pdfUrl && (
                           <div className="pt-1 flex items-center gap-2">
@@ -403,10 +426,18 @@ export const AcademicSearchModal: React.FC<AcademicSearchModalProps> = ({
                 </p>
               </div>
 
+              {webEngine && <p className="text-[11px] text-slate-500">Search provider: {webEngine}</p>}
+              {errorMsg && (
+                <div className="p-3 rounded-xl bg-rose-50 border border-rose-200 text-rose-800 flex items-center gap-2">
+                  <AlertCircle className="w-4 h-4 shrink-0" />
+                  <span>{errorMsg}</span>
+                </div>
+              )}
+
               {webResults.length === 0 && !isLoading ? (
                 <div className="py-12 text-center text-slate-400 space-y-2">
                   <Globe className="w-8 h-8 mx-auto text-slate-300" />
-                  <p className="font-medium text-slate-600">Search for production telemetry, SLA incident postmortems, and community reports.</p>
+                  <p className="font-medium text-slate-600">{hasSearchedWeb ? 'No web results found. Try different keywords.' : 'Search for production telemetry, SLA incident postmortems, and community reports.'}</p>
                 </div>
               ) : (
                 <div className="space-y-3">
@@ -508,7 +539,7 @@ export const AcademicSearchModal: React.FC<AcademicSearchModalProps> = ({
 
         {/* Footer */}
         <div className="px-6 py-3 border-t border-slate-200 bg-slate-50 flex items-center justify-between text-xs text-slate-500">
-          <span>Powered by arXiv API, Semantic Scholar Graph, and Google Cloud Run</span>
+          <span>Powered by Crawl4AI, arXiv, Semantic Scholar, and Google Cloud Run</span>
           <button
             onClick={onClose}
             className="px-4 py-2 rounded-xl bg-slate-200 hover:bg-slate-300 text-slate-800 font-semibold transition-colors"

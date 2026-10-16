@@ -281,7 +281,7 @@ export interface AcademicSearchResult {
 	venueOrPublisher: string;
 	url: string;
 	pdfUrl?: string;
-	sourceType: "arxiv" | "semantic_scholar" | "gemini_grounded";
+	sourceType: "arxiv" | "semantic_scholar" | "crawl4ai_discovery";
 	citationCount?: number;
 	isOpenAccess: boolean;
 	category?: EvidenceCategory;
@@ -293,5 +293,5 @@ export interface WebSearchResult {
 	url: string;
 	snippet: string;
 	publishedDate?: string;
-	engine: "gemini_grounding" | "tavily" | "google_custom_search" | "fallback";
+	engine: "crawl4ai" | "tavily" | "google_custom_search";
 }

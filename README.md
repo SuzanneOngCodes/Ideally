@@ -87,15 +87,16 @@ Before running the application, ensure you have the following installed:
    # App URL (Used for callbacks and internal references)
    APP_URL="http://localhost:3000"
 
-   # (Optional) Semantic Scholar API Key for higher rate limits on literature search
-   SEMANTIC_SCHOLAR_API_KEY=""
-
    # (Optional) Google Cloud Translation API Key
    # If left blank, Gemini-powered neural translation is used automatically
    GOOGLE_CLOUD_TRANSLATION_API_KEY=""
    ```
 
-> 🔒 **Security Note**: The `GEMINI_API_KEY` is loaded strictly on the Express backend via `dotenv` and is never exposed to the client-side browser bundle.
+> 🔒 **Security Note**: The Express and FastAPI services keep API keys outside the browser bundle. Set `CRAWL4AI_API_KEY` in `backend/.env` for local Evidence Explorer search; Cloud Run injects it through Secret Manager.
+
+Set optional `SEMANTIC_SCHOLAR_API_KEY`, `TAVILY_API_KEY`, and Google Custom Search credentials in `backend/.env` as shown in [`backend/.env.example`](backend/.env.example).
+
+The Evidence Explorer calls FastAPI at `/api/v1/evidence/*` through the Express same-origin proxy. FastAPI calls Crawl4AI Cloud `GET /search` for live web results and academic paper discovery. arXiv paper hits are enriched through the arXiv API; unresolved hits remain search previews. Open and review each paper before treating a snippet or abstract as evidence. If Crawl4AI fails, web search uses configured Tavily or Google CSE credentials. It never returns fabricated fallback results.
 
 ---
 

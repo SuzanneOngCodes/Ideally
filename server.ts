@@ -40,7 +40,7 @@ app.use(["/api/v1", "/api/backend/health"], (req, res) => {
 		response.on("error", () => res.destroy());
 		response.pipe(res);
 	});
-	upstream.setTimeout(180_000, () => {
+	upstream.setTimeout(225_000, () => {
 		if (!res.headersSent) res.status(504).json({ error: "Python backend request timed out" });
 		upstream.destroy();
 	});
@@ -1212,17 +1212,6 @@ Format your response as a valid JSON object:
 app.post("/api/advisor/find-evidence", async (req, res) => {
 	const { brief, cardId, domain } = req.body;
 
-	if (!ai) {
-		res.json({
-			updatedCard: {
-				status: "source-supported",
-				limitations: ["Evaluated under single-GPU batch-size-1 constraints.", "Requires pre-registration of statistical hypothesis tests."],
-			},
-			engine: "local_stub",
-		});
-		return;
-	}
-
 	try {
 		const evidencePrompt = `
 You are a Research Evidence Miner for Ideally.
@@ -1274,288 +1263,60 @@ Format as JSON:
 			}
 		}
 
-		// Direct live retrieval from arXiv preprints without errors
-		const arxivResults = await fetchArxivPapers(brief?.experimentDesign?.primaryResearchQuestion || brief?.intake?.problemOrObservation || "machine learning latency", 2);
-		if (arxivResults.length > 0) {
-			const realSources = arxivResults.map((p, idx) => ({
-				id: `src-arxiv-${Date.now()}-${idx}`,
+		// The FastAPI service owns all external evidence retrieval.
+		const backendResponse = await fetch(new URL("/api/v1/evidence/academic", pythonBackendUrl), {
+			method: "POST",
+			headers: { "Content-Type": "application/json" },
+			body: JSON.stringify({ query: brief?.experimentDesign?.primaryResearchQuestion || brief?.intake?.problemOrObservation || "machine learning latency", source: "all", limit: 2 }),
+			signal: AbortSignal.timeout(150_000),
+		});
+		const backendData = backendResponse.ok ? await backendResponse.json() : { results: [] };
+		const papers = Array.isArray(backendData.results) ? backendData.results : [];
+		if (papers.length > 0) {
+			const realSources = papers.map((p: any, idx: number) => ({
+				id: `src-evidence-${Date.now()}-${idx}`,
 				title: p.title,
 				authors: p.authors,
 				yearOrDate: p.yearOrDate,
 				venueOrPublisher: p.venueOrPublisher,
 				url: p.url,
-				category: (idx % 2 === 0 ? "causes" : "solution_efficacy") as any,
-				stance: (idx === 0 ? "supporting" : "contradictory") as any,
-				reviewScope: "full_paper" as any,
-				isPrimarySource: true,
-				methodSummary: `Empirical evaluation on open benchmark datasets with measured latency profiles and model sizes.`,
-				findingsSummary: p.abstract.slice(0, 200) + "...",
-				limitations: "Evaluated under specific hardware architectures; requires verification on target GPU setup.",
-				excerpt: p.abstract.slice(0, 180),
+				category: "existence",
+				stance: "unclassified",
+				reviewScope: p.reviewScope || "search_snippet",
+				isPrimarySource: Boolean(p.isPrimarySource),
+				methodSummary: "Discovered through the evidence backend; methods require review.",
+				findingsSummary: String(p.abstract || "").slice(0, 200),
+				limitations: "Abstract or search preview only; read the original paper before citing findings.",
+				excerpt: String(p.abstract || "").slice(0, 180),
 			}));
 
 			res.json({
 				updatedCard: {
-					status: "source-supported",
+					status: "insufficient-evidence",
 					sources: realSources,
-					limitations: ["Verified directly from arXiv.org preprints."],
+					limitations: ["Sources found; claims and methods have not been verified from full papers."],
 				},
-				engine: "arxiv_live_api",
+				engine: "backend_evidence_search",
 			});
 			return;
 		}
 
 		res.json({
 			updatedCard: {
-				status: "source-supported",
-				limitations: ["Verified against available conference publications."],
+				status: "insufficient-evidence",
+				limitations: ["No verifiable paper was returned by the evidence backend."],
 			},
-			engine: "local_stub",
+			engine: "backend_evidence_search",
 		});
 	} catch (err: any) {
 		res.json({
 			updatedCard: {
-				status: "source-supported",
-				limitations: ["Verified against available conference publications."],
+				status: "insufficient-evidence",
+				limitations: ["Evidence backend was unavailable; no sources were verified."],
 			},
-			engine: "local_stub",
+			engine: "backend_evidence_search",
 		});
 	}
-});
-
-// ============================================================================
-// ACADEMIC SEARCH API: arXiv API & Semantic Scholar Graph API
-// ============================================================================
-async function fetchArxivPapers(query: string, maxResults: number = 6): Promise<any[]> {
-	try {
-		const cleanQuery = query
-			.replace(/[^\w\s-]/g, " ")
-			.trim()
-			.slice(0, 80);
-		const url = `https://export.arxiv.org/api/query?search_query=all:${encodeURIComponent(cleanQuery)}&start=0&max_results=${maxResults}&sortBy=relevance`;
-		const response = await fetch(url, { headers: { "User-Agent": "IdeallyResearchAdvisor/1.0" } });
-		if (!response.ok) return [];
-		const xml = await response.text();
-
-		const entries: any[] = [];
-		const entryRegex = /<entry>([\s\S]*?)<\/entry>/g;
-		let match;
-		while ((match = entryRegex.exec(xml)) !== null) {
-			const block = match[1];
-			const id = block.match(/<id>([\s\S]*?)<\/id>/)?.[1]?.trim() || "";
-			const title =
-				block
-					.match(/<title>([\s\S]*?)<\/title>/)?.[1]
-					?.trim()
-					.replace(/\s+/g, " ") || "";
-			const summary =
-				block
-					.match(/<summary>([\s\S]*?)<\/summary>/)?.[1]
-					?.trim()
-					.replace(/\s+/g, " ") || "";
-			const published =
-				block
-					.match(/<published>([\s\S]*?)<\/published>/)?.[1]
-					?.trim()
-					.slice(0, 10) || "";
-			const authorMatches = [...block.matchAll(/<author>\s*<name>([\s\S]*?)<\/name>/g)];
-			const authors = authorMatches.map((m) => m[1]?.trim()).filter(Boolean);
-			const pdfUrl = block.match(/<link[^>]*title="pdf"[^>]*href="([^"]*)"/)?.[1] || (id.startsWith("http") ? id.replace("/abs/", "/pdf/") + ".pdf" : "");
-
-			if (title) {
-				entries.push({
-					id: id || `arxiv-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
-					title,
-					authors: authors.slice(0, 4).join(", ") + (authors.length > 4 ? " et al." : ""),
-					yearOrDate: published || "2024",
-					venueOrPublisher: "arXiv.org Preprint",
-					url: id,
-					pdfUrl,
-					abstract: summary.slice(0, 400) + (summary.length > 400 ? "..." : ""),
-					sourceType: "arxiv",
-					isOpenAccess: true,
-					isPrimarySource: true,
-					reviewScope: "full_paper",
-				});
-			}
-		}
-		return entries;
-	} catch (err) {
-		console.error("arXiv fetch error:", err);
-		return [];
-	}
-}
-
-async function fetchSemanticScholarPapers(query: string, limit: number = 6): Promise<any[]> {
-	try {
-		const cleanQuery = query
-			.replace(/[^\w\s-]/g, " ")
-			.trim()
-			.slice(0, 80);
-		const apiKey = process.env.SEMANTIC_SCHOLAR_API_KEY;
-		const headers: Record<string, string> = {
-			"User-Agent": "IdeallyResearchAdvisor/1.0",
-		};
-		if (apiKey) {
-			headers["x-api-key"] = apiKey;
-		}
-		const url = `https://api.semanticscholar.org/graph/v1/paper/search?query=${encodeURIComponent(cleanQuery)}&limit=${limit}&fields=title,authors,year,venue,abstract,citationCount,url,isOpenAccess,externalIds`;
-		const response = await fetch(url, { headers });
-		if (!response.ok) return [];
-		const json = await response.json();
-		if (!json.data || !Array.isArray(json.data)) return [];
-
-		return json.data.map((item: any) => ({
-			id: item.paperId || `s2-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
-			title: item.title,
-			authors:
-				(item.authors || [])
-					.map((a: any) => a.name)
-					.slice(0, 4)
-					.join(", ") + ((item.authors?.length || 0) > 4 ? " et al." : ""),
-			yearOrDate: item.year ? String(item.year) : "2024",
-			venueOrPublisher: item.venue || "Peer-Reviewed Conference / Journal",
-			url: item.url || (item.externalIds?.DOI ? `https://doi.org/${item.externalIds.DOI}` : item.externalIds?.ArXiv ? `https://arxiv.org/abs/${item.externalIds.ArXiv}` : ""),
-			abstract: item.abstract ? item.abstract.slice(0, 400) + (item.abstract.length > 400 ? "..." : "") : "Abstract available via Semantic Scholar.",
-			sourceType: "semantic_scholar",
-			citationCount: item.citationCount || 0,
-			isOpenAccess: !!item.isOpenAccess,
-			isPrimarySource: true,
-			reviewScope: "full_paper",
-		}));
-	} catch (err) {
-		console.error("Semantic Scholar fetch error:", err);
-		return [];
-	}
-}
-
-// Route: Academic Search (arXiv + Semantic Scholar)
-app.post("/api/search/academic", async (req, res) => {
-	const { query, source = "all", limit = 6 } = req.body;
-	if (!query || typeof query !== "string") {
-		res.status(400).json({ error: "Search query is required" });
-		return;
-	}
-
-	try {
-		let results: any[] = [];
-		let provider = "arxiv";
-
-		if (source === "semantic_scholar" || source === "all") {
-			const s2Results = await fetchSemanticScholarPapers(query, Number(limit));
-			if (s2Results.length > 0) {
-				results.push(...s2Results);
-				provider = "semantic_scholar";
-			}
-		}
-
-		if (results.length < Number(limit) && (source === "arxiv" || source === "all")) {
-			const arxivResults = await fetchArxivPapers(query, Number(limit) - results.length);
-			results.push(...arxivResults);
-			if (results.length > 0 && provider !== "semantic_scholar") provider = "arxiv";
-		}
-
-		res.json({
-			query,
-			results,
-			count: results.length,
-			provider: results.length > 0 ? provider : "none",
-		});
-	} catch (err: any) {
-		console.error("Academic search endpoint error:", err);
-		res.status(500).json({ error: "Failed to search academic literature", details: err.message });
-	}
-});
-
-// Route: Web & News Search (Tavily, Google Custom Search, or Gemini Grounding)
-app.post("/api/search/web", async (req, res) => {
-	const { query } = req.body;
-	if (!query || typeof query !== "string") {
-		res.status(400).json({ error: "Query is required" });
-		return;
-	}
-
-	const tavilyKey = process.env.TAVILY_API_KEY;
-	const googleCseKey = process.env.GOOGLE_CUSTOM_SEARCH_KEY;
-	const googleCseCx = process.env.GOOGLE_CUSTOM_SEARCH_CX;
-
-	// 1. Tavily Search API
-	if (tavilyKey) {
-		try {
-			const tavilyRes = await fetch("https://api.tavily.com/search", {
-				method: "POST",
-				headers: { "Content-Type": "application/json" },
-				body: JSON.stringify({
-					api_key: tavilyKey,
-					query,
-					search_depth: "advanced",
-					max_results: 5,
-				}),
-			});
-			if (tavilyRes.ok) {
-				const data = await tavilyRes.json();
-				res.json({
-					query,
-					engine: "tavily",
-					results: (data.results || []).map((r: any) => ({
-						title: r.title,
-						url: r.url,
-						snippet: r.content,
-						publishedDate: r.published_date,
-					})),
-				});
-				return;
-			}
-		} catch (e) {
-			console.error("Tavily search error:", e);
-		}
-	}
-
-	// 2. Google Custom Search JSON API
-	if (googleCseKey && googleCseCx) {
-		try {
-			const cseUrl = `https://www.googleapis.com/customsearch/v1?key=${encodeURIComponent(googleCseKey)}&cx=${encodeURIComponent(googleCseCx)}&q=${encodeURIComponent(query)}&num=5`;
-			const cseRes = await fetch(cseUrl);
-			if (cseRes.ok) {
-				const data = await cseRes.json();
-				res.json({
-					query,
-					engine: "google_custom_search",
-					results: (data.items || []).map((item: any) => ({
-						title: item.title,
-						url: item.link,
-						snippet: item.snippet,
-					})),
-				});
-				return;
-			}
-		} catch (e) {
-			console.error("Google CSE error:", e);
-		}
-	}
-
-	// 3. Fallback: Contextual systems & industry engineering sources
-	res.json({
-		query,
-		engine: "curated_engineering_repositories",
-		results: [
-			{
-				title: `vLLM & TensorRT-LLM Production Telemetry: ${query.slice(0, 40)}`,
-				url: "https://github.com/vllm-project/vllm/issues",
-				snippet: `Real-world systems logs, issue discussions, and latency benchmarks regarding batch=1 serving constraints and SLA deadlines.`,
-			},
-			{
-				title: `Hugging Face Open LLM Benchmarks & Leaderboards`,
-				url: "https://huggingface.co/spaces/open-llm-leaderboard/open_llm_leaderboard",
-				snippet: `Empirical evaluations of modern transformer architectures, quantized inference times, and task-specific trade-offs.`,
-			},
-			{
-				title: `PyTorch & ONNX Runtime Performance Profiles`,
-				url: "https://pytorch.org/blog/",
-				snippet: `Official performance benchmarks comparing specialized non-autoregressive encoder latency against sequential token generation.`,
-			},
-		],
-	});
 });
 
 // ============================================================================

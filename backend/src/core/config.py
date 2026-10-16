@@ -18,6 +18,9 @@ class Settings(BaseSettings):
     tavily_api_key: SecretStr = SecretStr("")
     crawl4ai_api_key: SecretStr = SecretStr("")
     crawl4ai_base_url: str = "https://api.crawl4ai.com"
+    semantic_scholar_api_key: SecretStr = SecretStr("")
+    google_custom_search_key: SecretStr = SecretStr("")
+    google_custom_search_cx: str = ""
     crawl_concurrency: int = Field(default=3, ge=1, le=8)
     crawl_max_urls: int = Field(default=3, ge=1, le=5)
     crawl_url_timeout_seconds: float = Field(default=25, gt=0, le=60)
