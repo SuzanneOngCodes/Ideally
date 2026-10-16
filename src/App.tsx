@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Header, NavTab } from "./components/Header";
 import { ResearchWorkflowRibbon } from "./components/ResearchWorkflowRibbon";
 import { MethodologyModal } from "./components/MethodologyModal";
@@ -23,7 +23,7 @@ import { EvidencePrinciplesModal } from "./components/EvidencePrinciplesModal";
 import { TechStackModal } from "./components/TechStackModal";
 import { SmartSearchLanding } from "./components/SmartSearchLanding";
 import { PRESET_SCENARIOS, PresetScenario } from "./data/presetScenarios";
-import { ResearchBrief, UserIntake, SocraticDefenseProbe, EvidenceAuditReport, AudienceMode, ResearchMapCard, StructuredEvidenceSource } from "./types/research";
+import { ResearchBrief, UserIntake, SocraticDefenseProbe, EvidenceAuditReport, AudienceMode, ResearchMapCard, StructuredEvidenceSource, ExperimentDesign } from "./types/research";
 import { generateMarkdownBrief, downloadMarkdownFile } from "./utils/exportBrief";
 import { useLanguage } from "./context/LanguageContext";
 
@@ -37,6 +37,12 @@ export default function App() {
 	const [audienceMode, setAudienceMode] = useState<AudienceMode>("beginner");
 	const [advisorQuery, setAdvisorQuery] = useState<string>("");
 	const [chatSessionId, setChatSessionId] = useState<string | null>(null);
+	const [briefSource, setBriefSource] = useState<"preset" | "ai" | "unavailable">("preset");
+	const [userSelectedDirectionId, setUserSelectedDirectionId] = useState<string | null>(null);
+	const [liveExperiment, setLiveExperiment] = useState<ExperimentDesign | null>(null);
+	const [experimentError, setExperimentError] = useState<string | null>(null);
+	const [isExperimentLoading, setIsExperimentLoading] = useState(false);
+	const [experimentRetry, setExperimentRetry] = useState(0);
 	const [auditCustomText, setAuditCustomText] = useState<string>("");
 	const [isPresetsOpen, setIsPresetsOpen] = useState(false);
 	const [isMethodologyOpen, setIsMethodologyOpen] = useState(false);
@@ -59,9 +65,57 @@ export default function App() {
 	};
 
 	const handleSelectTab = (tab: NavTab) => {
-		if (tab === "workspace") setChatSessionId(null);
 		setActiveTab(tab);
 	};
+
+	useEffect(() => {
+		if (activeTab !== "experiment") return;
+		if (!chatSessionId) {
+			setLiveExperiment(briefSource === "ai" && !userSelectedDirectionId ? currentBrief.experimentDesign : null);
+			setExperimentError(null);
+			setIsExperimentLoading(false);
+			return;
+		}
+
+		const controller = new AbortController();
+		const selected = briefSource === "ai" && userSelectedDirectionId
+			? currentBrief.candidateDirections.find((direction) => direction.id === userSelectedDirectionId)
+			: undefined;
+		setLiveExperiment(null);
+		setExperimentError(null);
+		setIsExperimentLoading(true);
+		const loadExperiment = async () => {
+			try {
+				const response = await fetch(`/api/v1/research/${encodeURIComponent(chatSessionId)}/experiment`, {
+					method: "POST",
+					headers: { "Content-Type": "application/json" },
+					signal: controller.signal,
+					body: JSON.stringify({
+						direction_id: selected?.id || "",
+						direction_title: selected?.title || "",
+						direction_summary: selected?.summary || "",
+						time_horizon_weeks: briefSource === "ai" ? currentBrief.intake.constraints.timeHorizonWeeks : null,
+						compute_tier: briefSource === "ai" ? currentBrief.intake.constraints.computeTier : "unknown",
+						dataset_access: briefSource === "ai" ? currentBrief.intake.constraints.datasetAccess : "unknown",
+						regenerate: false,
+					}),
+				});
+				const data = await response.json();
+				if (!response.ok) throw new Error(typeof data.detail === "string" ? data.detail : data.error || `Experiment API error (${response.status})`);
+				if (!data.primaryResearchQuestion || !Array.isArray(data.dependentVariablesAndMetrics)) throw new Error("Experiment API returned an invalid design");
+				if (!controller.signal.aborted) {
+					setLiveExperiment(data);
+					setCurrentBrief((previous) => ({ ...previous, experimentDesign: data }));
+				}
+			} catch (error) {
+				if (!controller.signal.aborted) setExperimentError(error instanceof Error ? error.message : "Unable to load experiment design");
+			} finally {
+				if (!controller.signal.aborted) setIsExperimentLoading(false);
+			}
+		};
+		void loadExperiment();
+		return () => controller.abort();
+	}, [activeTab, chatSessionId, briefSource, userSelectedDirectionId, experimentRetry]);
 
 	const handleAudienceModeToggle = () => {
 		setAudienceMode((prev) => {
@@ -73,6 +127,9 @@ export default function App() {
 
 	const handleSelectPreset = (preset: PresetScenario) => {
 		setChatSessionId(null);
+		setBriefSource("preset");
+		setUserSelectedDirectionId(null);
+		setLiveExperiment(null);
 		setActivePreset(preset);
 		setCurrentBrief(preset.brief);
 		setCurrentProbes(preset.defenseProbes);
@@ -96,6 +153,9 @@ export default function App() {
 		} else {
 			if (query) {
 				setAdvisorQuery(query);
+				setBriefSource("unavailable");
+				setUserSelectedDirectionId(null);
+				setLiveExperiment(null);
 			}
 			setChatSessionId(null);
 			setActiveTab("workspace");
@@ -163,6 +223,9 @@ export default function App() {
 			const data = await response.json();
 			if (data.brief) {
 				setChatSessionId(null);
+				setBriefSource(data.source && data.source !== "curated_advisor_engine" ? "ai" : "unavailable");
+				setUserSelectedDirectionId(null);
+				setLiveExperiment(null);
 				setCurrentBrief(data.brief);
 				// Also fetch fresh defense probes for this new brief
 				try {
@@ -185,8 +248,7 @@ export default function App() {
 			}
 		} catch (err: any) {
 			console.error("Failed to analyze intake:", err);
-			showStatus("Analysis completed via curated advisory fallback engine.");
-			setActiveTab("problem");
+			showStatus("Research analysis failed. Please retry.");
 		} finally {
 			setIsLoading(false);
 		}
@@ -195,6 +257,8 @@ export default function App() {
 	const handleSelectDirection = (directionId: string) => {
 		const dir = currentBrief.candidateDirections.find((d) => d.id === directionId);
 		if (!dir) return;
+		setUserSelectedDirectionId(directionId);
+		setLiveExperiment(null);
 
 		setCurrentBrief((prev) => ({
 			...prev,
@@ -280,7 +344,7 @@ export default function App() {
 			<Header activeTab={activeTab} onSelectTab={handleSelectTab} onOpenPresets={() => setIsPresetsOpen(true)} onNewIntake={handleNewIntake} onExport={handleExportBrief} hasActiveBrief={!!currentBrief} onOpenMethodology={() => setIsMethodologyOpen(true)} onOpenSearch={() => setIsSearchOpen(true)} onOpenGlossary={handleOpenGlossary} onOpenPrinciples={() => setIsPrinciplesOpen(true)} onOpenTechStack={() => setIsTechStackOpen(true)} />
 
 			{/* Guided Research Journey Ribbon — only shown when navigating the 5 linear brief stages */}
-			{currentBrief && ["problem", "knowledge", "tradeoffs", "experiment", "brief"].includes(activeTab) && <ResearchWorkflowRibbon activeTab={activeTab} onSelectTab={setActiveTab} brief={currentBrief} />}
+			{currentBrief && ["problem", "knowledge", "tradeoffs", "experiment", "brief"].includes(activeTab) && !(activeTab === "experiment" && chatSessionId) && <ResearchWorkflowRibbon activeTab={activeTab} onSelectTab={setActiveTab} brief={currentBrief} />}
 
 			{/* Global Status Notification Toast */}
 			{statusMessage && <div className='fixed bottom-4 right-4 z-50 bg-slate-900 text-white px-4 py-2.5 rounded-xl text-xs font-semibold shadow-xl border border-slate-700/50 animate-in fade-in slide-in-from-bottom-2'>{statusMessage}</div>}
@@ -318,7 +382,18 @@ export default function App() {
 
 				{activeTab === "tradeoffs" && <DirectionTradeoffsView directions={currentBrief.candidateDirections} selectedDirectionId={currentBrief.selectedDirectionId} onSelectDirection={handleSelectDirection} selectionRationale={currentBrief.selectionRationale} onProceed={() => setActiveTab("experiment")} onBack={() => setActiveTab("knowledge")} userContext={currentBrief.intake.targetContext} timeHorizonWeeks={currentBrief.intake.constraints.timeHorizonWeeks} />}
 
-				{activeTab === "experiment" && <ExperimentDesignView design={currentBrief.experimentDesign} onProceed={() => setActiveTab("brief")} onBack={() => setActiveTab("tradeoffs")} title={currentBrief.title} />}
+				{activeTab === "experiment" && (liveExperiment ? (
+					<ExperimentDesignView design={liveExperiment} onProceed={!chatSessionId && briefSource === "ai" ? () => setActiveTab("brief") : undefined} onBack={() => setActiveTab(!chatSessionId && briefSource === "ai" ? "tradeoffs" : "workspace")} backLabel={!chatSessionId && briefSource === "ai" ? "Back: Trade-offs" : "Back: Research Map"} title={currentBrief.title} />
+				) : (
+					<div className="max-w-3xl mx-auto px-6 py-16 text-center space-y-4" role="status">
+						<h1 className="text-2xl font-bold text-slate-900 font-serif-scholarly">Experiment Protocol</h1>
+						<p className="text-sm text-slate-600">{isExperimentLoading ? "Creating a protocol from your saved research session…" : experimentError || (chatSessionId ? "No experiment design is available yet." : "Start a research conversation and build its reasoning map to create an experiment protocol.")}</p>
+						<div className="flex justify-center gap-2">
+							<button onClick={() => setActiveTab("workspace")} className="px-4 py-2 rounded-lg bg-slate-900 text-white text-sm">Open Research Workspace</button>
+							{experimentError && <button onClick={() => setExperimentRetry((value) => value + 1)} className="px-4 py-2 rounded-lg border border-slate-300 text-slate-700 text-sm">Retry</button>}
+						</div>
+					</div>
+				))}
 
 				{activeTab === "brief" && <ResearchBriefView brief={currentBrief} onOpenDefense={() => setActiveTab("defense")} onOpenAuditor={() => setActiveTab("auditor")} onNavigateStage={(stage) => setActiveTab(stage)} />}
 

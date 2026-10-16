@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { ShieldCheck, MessageSquare, Send, Award, HelpCircle, Loader2, RefreshCw } from 'lucide-react';
 import { ResearchBrief, SocraticDefenseProbe } from '../types/research';
+import { MarkdownContent } from './MarkdownContent';
 
 interface SocraticDefenseViewProps {
   brief: ResearchBrief;
@@ -134,7 +135,7 @@ export const SocraticDefenseView: React.FC<SocraticDefenseViewProps> = ({
           </div>
 
           <blockquote className="p-4 rounded-lg bg-slate-50 border-l-4 border-slate-900 text-sm sm:text-base font-serif-scholarly font-medium text-slate-900 leading-relaxed">
-            "{activeProbe.question}"
+            <MarkdownContent text={activeProbe.question} />
           </blockquote>
 
           {/* Suggested defense arguments */}
@@ -152,7 +153,7 @@ export const SocraticDefenseView: React.FC<SocraticDefenseViewProps> = ({
                     className="w-full text-left p-2.5 rounded bg-slate-50 hover:bg-slate-100 border border-slate-200/70 text-xs text-slate-700 transition-colors flex items-start gap-2"
                   >
                     <span className="text-slate-400 font-mono-tabular shrink-0">#{i + 1}</span>
-                    <span>{ex}</span>
+                    <MarkdownContent text={ex} />
                   </button>
                 ))}
               </div>
@@ -227,7 +228,7 @@ export const SocraticDefenseView: React.FC<SocraticDefenseViewProps> = ({
                   {activeEval.strengths?.map((str: string, i: number) => (
                     <li key={i} className="flex items-start gap-1.5">
                       <span>✓</span>
-                      <span>{str}</span>
+                      <MarkdownContent text={str} />
                     </li>
                   ))}
                 </ul>
@@ -239,7 +240,7 @@ export const SocraticDefenseView: React.FC<SocraticDefenseViewProps> = ({
                   {activeEval.vulnerabilities?.map((vul: string, i: number) => (
                     <li key={i} className="flex items-start gap-1.5">
                       <span>!</span>
-                      <span>{vul}</span>
+                      <MarkdownContent text={vul} />
                     </li>
                   ))}
                 </ul>
@@ -251,9 +252,7 @@ export const SocraticDefenseView: React.FC<SocraticDefenseViewProps> = ({
                 <span className="text-amber-400 font-semibold uppercase tracking-wider block font-mono-tabular">
                   Advisor Strategic Tip for Paper / Defense:
                 </span>
-                <p className="leading-relaxed text-slate-100 font-serif-scholarly">
-                  {activeEval.advisorTip}
-                </p>
+                <MarkdownContent tone="dark" className="leading-relaxed text-slate-100 font-serif-scholarly" text={activeEval.advisorTip} />
               </div>
             )}
           </div>

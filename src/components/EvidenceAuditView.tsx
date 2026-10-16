@@ -4,6 +4,7 @@ import { EvidenceAuditReport, ResearchBrief, HallucinationRisk } from "../types/
 import { renderScholarlyText } from "../utils/textFormat";
 import { useLanguage } from "../context/LanguageContext";
 import { copyToClipboard } from "../utils/clipboard";
+import { MarkdownContent } from "./MarkdownContent";
 
 interface EvidenceAuditViewProps {
 	brief: ResearchBrief;
@@ -511,14 +512,15 @@ export const EvidenceAuditView: React.FC<EvidenceAuditViewProps> = ({ brief, onA
 
 												<h4 className='text-sm font-bold text-slate-900 font-serif-scholarly'>{renderScholarlyText(item.paperTitle)}</h4>
 
-												<p className='text-xs text-slate-600'>
-													<span className='font-semibold text-slate-700'>{t("auditorAllegedClaim")} </span>"{item.allegedClaim}"
-												</p>
+												<div className='text-xs text-slate-600'>
+													<span className='font-semibold text-slate-700'>{t("auditorAllegedClaim")} </span>
+													<MarkdownContent text={item.allegedClaim} />
+												</div>
 
-												<p className={`text-xs font-medium ${isVerified ? "text-emerald-900" : isDrift ? "text-amber-900" : "text-rose-900"}`}>
+												<div className={`text-xs font-medium ${isVerified ? "text-emerald-900" : isDrift ? "text-amber-900" : "text-rose-900"}`}>
 													<span className='font-semibold'>{t("auditorAuditorVerdict")} </span>
-													{item.verdictReason}
-												</p>
+													<MarkdownContent text={item.verdictReason} />
+												</div>
 
 												{item.verifiedAuthors && (
 													<div className='text-[11px] text-slate-500 font-mono-tabular pt-1'>
@@ -564,7 +566,7 @@ export const EvidenceAuditView: React.FC<EvidenceAuditViewProps> = ({ brief, onA
 							</span>
 						</div>
 
-						<p className='text-xs text-slate-600'>{report.slopAnalysis.critiqueSummary}</p>
+						<MarkdownContent className='text-xs text-slate-600' text={report.slopAnalysis.critiqueSummary} />
 
 						{report.slopAnalysis.detectedPatterns.length > 0 && (
 							<div className='space-y-2 pt-1'>
@@ -575,12 +577,12 @@ export const EvidenceAuditView: React.FC<EvidenceAuditViewProps> = ({ brief, onA
 												<span className='font-mono font-bold text-rose-700 bg-rose-50 px-1.5 py-0.5 rounded border border-rose-200'>"{pat.phrase}"</span>
 												<span className='text-[10px] uppercase font-mono text-slate-400'>{pat.category.replace("_", " ")}</span>
 											</div>
-											<p className='text-slate-600 text-[11px]'>{pat.explanation}</p>
+											<MarkdownContent className='text-slate-600 text-[11px]' text={pat.explanation} />
 										</div>
 
 										<div className='shrink-0 bg-white p-2 rounded border border-slate-200 text-[11px] max-w-xs'>
 											<span className='text-slate-400 font-semibold uppercase block text-[9px]'>{t("auditorAcademicSubstitute")}</span>
-											<span className='font-medium text-emerald-800'>{pat.suggestedRewrite}</span>
+											<MarkdownContent className='font-medium text-emerald-800' text={pat.suggestedRewrite} />
 										</div>
 									</div>
 								))}
@@ -597,7 +599,9 @@ export const EvidenceAuditView: React.FC<EvidenceAuditViewProps> = ({ brief, onA
 								</button>
 							</div>
 
-							<blockquote className='p-4 rounded-lg bg-slate-900 text-slate-100 text-xs sm:text-sm font-serif-scholarly leading-relaxed'>"{renderScholarlyText(report.slopAnalysis.cleanScholarlyRewrite)}"</blockquote>
+							<blockquote className='p-4 rounded-lg bg-slate-900 text-slate-100 text-xs sm:text-sm font-serif-scholarly leading-relaxed'>
+								<MarkdownContent tone='dark' text={renderScholarlyText(report.slopAnalysis.cleanScholarlyRewrite)} />
+							</blockquote>
 						</div>
 					</div>
 
@@ -608,7 +612,7 @@ export const EvidenceAuditView: React.FC<EvidenceAuditViewProps> = ({ brief, onA
 							{report.recommendations.map((rec, idx) => (
 								<li key={idx} className='flex items-start gap-2'>
 									<span className='w-1.5 h-1.5 rounded-full bg-slate-900 mt-1.5 shrink-0' />
-									<span>{rec}</span>
+									<MarkdownContent text={rec} />
 								</li>
 							))}
 						</ul>

@@ -50,4 +50,5 @@ async def send_message(
     db: Database,
     agent: Agent,
 ):
+    repository.get_session(db, str(session_id))
     return await service.send_message(db, str(session_id), payload, agent)
