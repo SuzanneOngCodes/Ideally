@@ -57,6 +57,7 @@ Nếu đổi sang PostgreSQL, cài driver tương ứng và dùng URL SQLAlchemy
 | DELETE | /api/v1/sessions/{id} | Xóa phiên và messages |
 | POST | /api/v1/sessions/{id}/messages | Gửi message cho Deep Agent |
 | GET | /api/v1/research/{id} | Research mới nhất, hoặc `null` nếu chưa có |
+| POST | /api/v1/research/{id}/experiment | Tạo và lưu Experiment Protocol từ reasoning map của session |
 
 ### Chat trực tiếp
 
@@ -164,8 +165,14 @@ Các API `/api/advisor/*`, search và translation vẫn được xử lý trong 
 
 ## Chat trên giao diện
 
-Workspace gửi câu hỏi tới `POST /api/v1/chat` qua `server.ts` (cổng 3000).
-Chat thông thường gọi Gemini trực tiếp; research dùng Deep Agent với web search.
+Workspace gửi câu hỏi tới `POST /api/v1/{session_id}/chat/stream` qua `server.ts`
+(cổng 3000). Endpoint trả NDJSON theo thời gian thực: `progress` (các bước phân tích,
+tìm/đọc nguồn, soạn và lưu phản hồi), `token` (mảnh văn bản câu trả lời), `keepalive`,
+rồi `complete` chứa ChatResponse. Lỗi sau khi stream bắt đầu được gửi dưới dạng event
+`error`. Progress chỉ mô tả trạng thái công việc; không gửi suy luận nội bộ của mô hình.
+Deep Agent hoàn tất xử lý công cụ và dữ liệu research trước; sau đó backend stream
+phần câu trả lời dạng văn bản qua Gemini để UI hiển thị dần, rồi lưu toàn bộ kết quả.
+Endpoint JSON cũ vẫn khả dụng.
 Session được giữ cho các lượt chat trong cùng phiên sử dụng ứng dụng.
 Lỗi API được hiển thị trên giao diện, không thay bằng câu trả lời mẫu.
 `GEMINI_FALLBACK_MODEL` mặc định là `gemini-3.1-flash-lite`; chat chuyển sang model này
@@ -196,6 +203,15 @@ Map lưu trong JSON research của session hiện có, không cần thay đổi 
 Chat follow-up không có map mới giữ map trước đó. Hội thoại cũ có thể dùng
 Build Research Map để tạo map từ lịch sử hiện tại. Frontend không dùng preset map
 hay biểu đồ số liệu mẫu trong Workspace.
+
+Trang Experiment Protocol gọi `POST /api/v1/research/{id}/experiment` khi session đã
+có reasoning map. Body có thể gồm `direction_id`, `direction_title`,
+`direction_summary`, `time_horizon_weeks`, `compute_tier` và `dataset_access`.
+Backend dùng Gemini tạo JSON theo schema, lưu `experiment_design` trong research
+của session và dùng lại khi reasoning map cùng các ràng buộc không đổi.
+`regenerate: true` buộc tạo lại. Thiếu map trả 409; lỗi Gemini được trả về
+giao diện, không dùng protocol mẫu. Bản thiết kế là đề xuất kiểm chứng,
+không phải kết quả thí nghiệm đã đo.
 
 ## Theo dõi agent và tool
 

@@ -1,4 +1,5 @@
 import logging
+from collections.abc import Awaitable, Callable
 
 from fastapi import HTTPException
 from sqlalchemy.orm import Session
@@ -11,7 +12,12 @@ from src.modules.session.repository import claim_version, get_session
 from src.modules.session.schemas import MessageCreate, MessageRead, MessageResponse
 
 async def send_message(
-    db: Session, session_id: str | None, payload: MessageCreate, agent: AgentService
+    db: Session,
+    session_id: str | None,
+    payload: MessageCreate,
+    agent: AgentService,
+    progress_callback: Callable[[str], Awaitable[None]] | None = None,
+    answer_token_callback: Callable[[str], Awaitable[None]] | None = None,
 ) -> MessageResponse:
     content = payload.content.strip()
     if not content:
@@ -31,7 +37,12 @@ async def send_message(
     log_event("chat.message.received", message="Đã nhận tin nhắn", session_id=session_id, research=payload.research)
     history.append({"role": "user", "content": content})
     try:
-        result = await agent.reply(history, payload.research)
+        if progress_callback:
+            result = await agent.reply(
+                history, payload.research, progress_callback, answer_token_callback
+            )
+        else:
+            result = await agent.reply(history, payload.research)
     except AgentUnavailableError as error:
         log_event("agent.run.failed", level=logging.ERROR, message="Agent không khả dụng", **error_fields(error))
         raise HTTPException(503, str(error)) from error
@@ -82,9 +93,18 @@ async def send_message(
         session.title = content[:200]
     if result.research is not None:
         updated_research = result.research.model_dump(mode="json")
-        if not updated_research.get("reasoning_map") and session.research:
-            updated_research["reasoning_map"] = session.research.get("reasoning_map")
+        previous_research = session.research or {}
+        if not updated_research.get("reasoning_map"):
+            updated_research["reasoning_map"] = previous_research.get("reasoning_map")
+        if updated_research.get("reasoning_map") == previous_research.get("reasoning_map"):
+            for key in (
+                "experiment_design", "experiment_direction_id", "experiment_context_hash"
+            ):
+                if previous_research.get(key) is not None:
+                    updated_research[key] = previous_research[key]
         session.research = updated_research
+    if progress_callback:
+        await progress_callback("saving_response")
     db.commit()
     log_event("chat.response.completed", message="Đã lưu phản hồi chat", session_id=str(session_id))
     return MessageResponse(

@@ -40,6 +40,24 @@ import {
 } from '../types/research';
 import { liveReasoningCards, type LiveReasoningMap } from '../utils/liveReasoningMap';
 import { useLanguage } from '../context/LanguageContext';
+import { MarkdownContent } from './MarkdownContent';
+
+type ChatProgressStage =
+  | 'analyzing'
+  | 'reviewing_method'
+  | 'searching_sources'
+  | 'reading_sources'
+  | 'composing_answer'
+  | 'saving_response';
+
+const chatProgressLabels: Record<ChatProgressStage, { vi: string; en: string }> = {
+  analyzing: { vi: 'Đang phân tích yêu cầu…', en: 'Analyzing your request…' },
+  reviewing_method: { vi: 'Đang chọn phương pháp phù hợp…', en: 'Reviewing the research approach…' },
+  searching_sources: { vi: 'Đang tìm nguồn nghiên cứu…', en: 'Searching research sources…' },
+  reading_sources: { vi: 'Đang đọc tài liệu…', en: 'Reading source material…' },
+  composing_answer: { vi: 'Đang tổng hợp câu trả lời…', en: 'Preparing the response…' },
+  saving_response: { vi: 'Đang lưu phản hồi…', en: 'Saving the response…' },
+};
 
 interface InteractiveResearchWorkspaceProps {
   brief: ResearchBrief;
@@ -81,6 +99,7 @@ export const InteractiveResearchWorkspace: React.FC<InteractiveResearchWorkspace
   const [messages, setMessages] = useState<ConversationMessage[]>([]);
   const [inputText, setInputText] = useState(initialAdvisorQuery || '');
   const [isSending, setIsSending] = useState(false);
+  const [thinkingStage, setThinkingStage] = useState<ChatProgressStage>('analyzing');
   const sendingRef = useRef(false);
   const loadedSessionRef = useRef<string | null>(null);
   const [isHistoryLoading, setIsHistoryLoading] = useState(Boolean(chatSessionId));
@@ -182,14 +201,17 @@ export const InteractiveResearchWorkspace: React.FC<InteractiveResearchWorkspace
       timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
       linkedCardId: activeCardId,
     };
+    const streamedAdvisorId = `msg-adv-${Date.now()}`;
+    let streamedReply = '';
 
     setMessages(prev => [...prev, userMsg]);
     if (!textToSend) setInputText('');
     setIsSending(true);
+    setThinkingStage('analyzing');
 
     try {
       const sessionId = chatSessionId || crypto.randomUUID();
-      const res = await fetch(`/api/v1/${encodeURIComponent(sessionId)}/chat`, {
+      const res = await fetch(`/api/v1/${encodeURIComponent(sessionId)}/chat/stream`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -198,12 +220,55 @@ export const InteractiveResearchWorkspace: React.FC<InteractiveResearchWorkspace
         }),
       });
 
-      const data = await res.json();
       if (!res.ok) {
+        let errorData: { detail?: unknown; error?: unknown } = {};
+        try { errorData = await res.json(); } catch { /* The proxy may return a plain error. */ }
         if (res.status === 404 && chatSessionId) onChatSessionChange(null);
-        const detail = typeof data.detail === 'string' ? data.detail : data.error;
+        const detail = typeof errorData.detail === 'string'
+          ? errorData.detail
+          : typeof errorData.error === 'string' ? errorData.error : undefined;
         throw new Error(detail || `Chat API error (${res.status})`);
       }
+      if (!res.body) throw new Error('Chat API did not provide a response stream');
+
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = '';
+      let data: any = null;
+      const handleEvent = (line: string) => {
+        if (!line.trim()) return;
+        const event = JSON.parse(line);
+        if (event.type === 'progress' && Object.hasOwn(chatProgressLabels, event.stage)) {
+          setThinkingStage(event.stage as ChatProgressStage);
+        } else if (event.type === 'token' && typeof event.text === 'string') {
+          streamedReply += event.text;
+          const partialMessage: ConversationMessage = {
+            id: streamedAdvisorId,
+            sender: 'advisor',
+            text: streamedReply,
+            timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+            linkedCardId: activeCardId,
+          };
+          setMessages(prev => prev.some(message => message.id === streamedAdvisorId)
+            ? prev.map(message => message.id === streamedAdvisorId ? partialMessage : message)
+            : [...prev, partialMessage]);
+        } else if (event.type === 'complete') {
+          data = event.data;
+        } else if (event.type === 'error') {
+          throw new Error(event.message || 'Chat request failed');
+        }
+      };
+
+      while (true) {
+        const { value, done } = await reader.read();
+        buffer += decoder.decode(value, { stream: !done });
+        const lines = buffer.split('\n');
+        buffer = lines.pop() || '';
+        lines.forEach(handleEvent);
+        if (done) break;
+      }
+      handleEvent(buffer);
+      if (!data) throw new Error('Chat stream ended before a final response');
       if (typeof data.reply !== 'string' || !data.reply.trim() || !data.session_id) {
         throw new Error('Chat API returned an invalid response');
       }
@@ -212,7 +277,7 @@ export const InteractiveResearchWorkspace: React.FC<InteractiveResearchWorkspace
       onChatSessionChange(data.session_id);
 
       const advisorMsg: ConversationMessage = {
-        id: `msg-adv-${Date.now()}`,
+        id: streamedAdvisorId,
         sender: 'advisor',
         text: data.reply,
         sources: data.research?.sources,
@@ -221,17 +286,20 @@ export const InteractiveResearchWorkspace: React.FC<InteractiveResearchWorkspace
         actionPrompt: data.actionPrompt,
       };
 
-      setMessages(prev => [...prev, advisorMsg]);
+      setMessages(prev => prev.some(message => message.id === streamedAdvisorId)
+        ? prev.map(message => message.id === streamedAdvisorId ? advisorMsg : message)
+        : [...prev, advisorMsg]);
       if (data.suggestedCardId && ['problem', 'evidence', 'research_question', 'hypothesis', 'experiment'].includes(data.suggestedCardId)) {
         setActiveCardId(data.suggestedCardId);
       }
     } catch (error) {
-      setMessages(prev => prev.filter(message => message.id !== userMsg.id));
+      setMessages(prev => prev.filter(message => message.id !== userMsg.id && message.id !== streamedAdvisorId));
       setChatError(error instanceof Error ? error.message : 'Unable to connect to the chat API');
       if (!textToSend) setInputText(query);
     } finally {
       sendingRef.current = false;
       setIsSending(false);
+      setThinkingStage('analyzing');
     }
   };
 
@@ -457,7 +525,7 @@ export const InteractiveResearchWorkspace: React.FC<InteractiveResearchWorkspace
                         : 'bg-slate-900 text-white shadow-xs'
                     }`}
                   >
-                    <div className="whitespace-pre-line">{m.text}</div>
+                    {isAdvisor ? <MarkdownContent text={m.text} /> : <div className="whitespace-pre-line">{m.text}</div>}
 
                     {isAdvisor && m.sources && m.sources.length > 0 && (
                       <div className="mt-3 space-y-1 border-t border-slate-200 pt-2">
@@ -496,7 +564,7 @@ export const InteractiveResearchWorkspace: React.FC<InteractiveResearchWorkspace
             {isSending && (
               <div className="flex items-center gap-2 text-slate-500 text-xs italic p-2">
                 <RefreshCw className="w-3.5 h-3.5 animate-spin text-slate-400" />
-                <span>Advisor evaluating evidence against methodology principles...</span>
+                <span>{chatProgressLabels[thinkingStage][currentLanguage === 'vi' ? 'vi' : 'en']}</span>
               </div>
             )}
             <div ref={messagesEndRef} />
@@ -660,11 +728,12 @@ export const InteractiveResearchWorkspace: React.FC<InteractiveResearchWorkspace
                 </span>
               </div>
 
-              <p className="text-sm text-slate-700 leading-relaxed font-sans">
-                {audienceMode === 'beginner'
+              <MarkdownContent
+                className="text-sm text-slate-700 leading-relaxed font-sans"
+                text={audienceMode === 'beginner'
                   ? activeCard.accessibleExplanation
                   : activeCard.deepScholarlyExplanation}
-              </p>
+              />
 
               {audienceMode === 'beginner' && (
                 <div className="p-3 rounded-lg bg-slate-50 border border-slate-100 text-xs space-y-1 mt-2">
@@ -672,12 +741,21 @@ export const InteractiveResearchWorkspace: React.FC<InteractiveResearchWorkspace
                     <Info className="w-3.5 h-3.5 text-slate-500" />
                     <span>Key Terminology & Why This Matters:</span>
                   </div>
-                  <p className="text-slate-600 text-[11px]">
-                    {activeCard.summary}
-                  </p>
+                  <MarkdownContent className="text-slate-600 text-[11px]" text={activeCard.summary} />
                 </div>
               )}
             </div>
+
+            {activeCard.id === 'experiment' && reasoningMap && (
+              <button
+                type="button"
+                onClick={() => onNavigateToStage('experiment')}
+                className="inline-flex items-center gap-2 px-3.5 py-2 rounded-lg bg-slate-900 text-white text-xs font-semibold hover:bg-slate-800 transition-colors"
+              >
+                Generate Full Experiment Protocol
+                <ArrowRight className="w-3.5 h-3.5" />
+              </button>
+            )}
 
             {/* Traceable Sources Section (Section 4 Evidence Principles) */}
             <div className="space-y-3 pt-2 border-t border-slate-100">
@@ -795,24 +873,24 @@ export const InteractiveResearchWorkspace: React.FC<InteractiveResearchWorkspace
                         {/* Expanded details (Method, Findings, Limitations) */}
                         {isExpanded && (
                           <div className="px-3.5 pb-3.5 pt-1 border-t border-slate-100 space-y-2.5 text-xs">
-                            <div className="p-2.5 rounded-lg bg-slate-50 border border-slate-100 text-[11px] text-slate-700 italic">
-                              "{src.excerpt}"
+                            <div className="p-2.5 rounded-lg bg-slate-50 border border-slate-100 text-[11px] text-slate-700">
+                              <MarkdownContent text={src.excerpt} />
                             </div>
 
                             <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-[11px]">
                               <div className="space-y-0.5">
                                 <span className="font-semibold text-slate-800 block">Method:</span>
-                                <p className="text-slate-600">{src.methodSummary}</p>
+                                <MarkdownContent className="text-slate-600" text={src.methodSummary} />
                               </div>
                               <div className="space-y-0.5">
                                 <span className="font-semibold text-slate-800 block">Findings:</span>
-                                <p className="text-slate-600">{src.findingsSummary}</p>
+                                <MarkdownContent className="text-slate-600" text={src.findingsSummary} />
                               </div>
                             </div>
 
                             <div className="space-y-0.5 pt-1 border-t border-slate-100 text-[11px]">
                               <span className="font-semibold text-rose-800 block">Documented Limitations:</span>
-                              <p className="text-rose-900/80">{src.limitations}</p>
+                              <MarkdownContent className="text-rose-900/80" text={src.limitations} />
                             </div>
                           </div>
                         )}
@@ -832,13 +910,13 @@ export const InteractiveResearchWorkspace: React.FC<InteractiveResearchWorkspace
                 {activeCard.limitations.map((lim, i) => (
                   <li key={i} className="flex items-start gap-2">
                     <span className="text-rose-500 font-bold shrink-0">·</span>
-                    <span>{lim}</span>
+                    <MarkdownContent text={lim} />
                   </li>
                 ))}
                 {activeCard.unresolvedQuestions?.map((uq, i) => (
                   <li key={`uq-${i}`} className="flex items-start gap-2">
                     <span className="text-indigo-500 font-bold shrink-0">?</span>
-                    <span className="text-indigo-900 font-medium">{uq}</span>
+                    <MarkdownContent className="text-indigo-900 font-medium" text={uq} />
                   </li>
                 ))}
               </ul>

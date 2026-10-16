@@ -6,7 +6,13 @@ from fastapi.testclient import TestClient
 from src.core.config import Settings
 from src.core.errors import AgentUnavailableError
 from src.main import create_app
-from src.modules.research.schemas import AgentReply, Finding, ResearchResult, Source
+from src.modules.research.schemas import (
+    AgentReply,
+    ExperimentDesign,
+    Finding,
+    ResearchResult,
+    Source,
+)
 from src.modules.session.models import ChatSession
 
 
@@ -16,6 +22,38 @@ class FakeAgent:
     def __init__(self):
         self.history = []
         self.error = None
+        self.experiment_calls = 0
+
+    async def design_experiment(self, reasoning_map, request):
+        self.experiment_calls += 1
+        return ExperimentDesign(
+            primaryResearchQuestion=reasoning_map["experiment"]["summary"],
+            falsifiableHypothesis="A measurable hypothesis",
+            independentVariables=["method"],
+            dependentVariablesAndMetrics=[{
+                "metric": "latency", "targetBenchmark": "To be determined",
+                "evaluationMethod": "Repeated timed trials",
+            }],
+            baselinesAndControls=[{
+                "name": "current method", "type": "naive_baseline", "rationale": "comparison",
+            }],
+            datasetAndApparatus={
+                "primaryDatasetOrSetup": "To be determined",
+                "sourceAndLicensing": "To be determined",
+                "sampleScale": "To be determined",
+                "fallbackIfUnavailable": "Use an accessible dataset",
+            },
+            milestoneTimeline=[{
+                "phase": "Pilot", "durationWeeks": 1, "objective": "Measure",
+                "stopGoCriteria": "Feasible data access",
+            }],
+            validityThreats=[{
+                "threatType": "internal", "description": "Confounding hardware",
+                "mitigationStrategy": "Same machine",
+            }],
+            negativeResultValue="Defines a boundary condition",
+            successDefinition="Pre-registered threshold",
+        )
 
     async def reply(self, history, research):
         self.history = history
@@ -67,6 +105,58 @@ def test_session_lifecycle_and_research(client):
     assert client.delete(base).status_code == 204
     assert client.get(base).status_code == 404
     assert client.get(f"/api/v1/research/{session_id}").status_code == 404
+
+
+def test_experiment_requires_live_map_and_persists_with_cache(client):
+    session_id = new_session(client)
+    url = f"/api/v1/research/{session_id}/experiment"
+    payload = {"direction_id": "chosen", "direction_title": "Chosen direction"}
+    assert client.post(url, json=payload).status_code == 409
+    card = {
+        "title": "Research question", "summary": "Can the chosen method reduce latency?",
+        "explanation": "Proposed study", "methodology": "Compare methods",
+        "status": "AI-inferred", "limitations": [], "unresolved_questions": [], "sources": [],
+    }
+    reasoning_map = {
+        name: dict(card)
+        for name in ("problem", "evidence", "research_question", "hypothesis", "experiment")
+    }
+    with client.app.state.db_factory() as db:
+        session = db.get(ChatSession, session_id)
+        session.research = {
+            "title": "Live research", "summary": "Saved session",
+            "reasoning_map": reasoning_map,
+        }
+        db.commit()
+
+    response = client.post(url, json=payload)
+    assert response.status_code == 200
+    assert response.json()["primaryResearchQuestion"] == "Can the chosen method reduce latency?"
+    assert client.app.state.agent.experiment_calls == 1
+    assert client.post(url, json=payload).status_code == 200
+    assert client.app.state.agent.experiment_calls == 1
+    saved_research = client.get(f"/api/v1/research/{session_id}").json()
+    assert saved_research["experiment_design"] == response.json()
+    assert saved_research["experiment_direction_id"] == "chosen"
+    follow_up = client.post(
+        f"/api/v1/sessions/{session_id}/messages",
+        json={"content": "Explain the controls", "research": True},
+    )
+    assert follow_up.status_code == 200
+    assert follow_up.json()["research"]["experiment_design"] == response.json()
+    assert client.post(url, json={**payload, "regenerate": True}).status_code == 200
+    assert client.app.state.agent.experiment_calls == 2
+
+    with client.app.state.db_factory() as db:
+        session = db.get(ChatSession, session_id)
+        changed = dict(session.research)
+        revised_map = {name: dict(value) for name, value in reasoning_map.items()}
+        revised_map["experiment"]["summary"] = "A revised question"
+        changed["reasoning_map"] = revised_map
+        session.research = changed
+        db.commit()
+    assert client.post(url, json=payload).json()["primaryResearchQuestion"] == "A revised question"
+    assert client.app.state.agent.experiment_calls == 3
 
 
 @pytest.mark.parametrize(

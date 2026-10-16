@@ -35,8 +35,9 @@ app.use(["/api/v1", "/api/backend/health"], (req, res) => {
 	const transport = target.protocol === "https:" ? https : http;
 	const upstream = transport.request(target, { method: req.method, headers }, (response) => {
 		res.status(response.statusCode || 502);
-		if (response.headers["content-type"]) res.setHeader("content-type", response.headers["content-type"]);
-		if (response.headers["retry-after"]) res.setHeader("retry-after", response.headers["retry-after"]);
+		for (const header of ["content-type", "retry-after", "cache-control", "x-accel-buffering"] as const) {
+			if (response.headers[header]) res.setHeader(header, response.headers[header]);
+		}
 		response.on("error", () => res.destroy());
 		response.pipe(res);
 	});

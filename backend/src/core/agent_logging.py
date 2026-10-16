@@ -2,6 +2,7 @@
 
 import json
 import logging
+from collections.abc import Awaitable, Callable
 from time import perf_counter
 
 from langchain_core.callbacks import AsyncCallbackHandler
@@ -12,8 +13,15 @@ from src.core.logger import error_fields, log_event
 class AgentLogHandler(AsyncCallbackHandler):
     run_inline = True
 
-    def __init__(self):
+    def __init__(self, on_progress: Callable[[str], Awaitable[None]] | None = None):
         self.calls = {}
+        self.on_progress = on_progress
+        self.last_progress_stage = None
+
+    async def report_progress(self, stage: str):
+        if self.on_progress and stage != self.last_progress_stage:
+            self.last_progress_stage = stage
+            await self.on_progress(stage)
 
     def start(self, kind, run_id, parent_run_id, **fields):
         self.calls[str(run_id)] = (perf_counter(), fields)
@@ -57,13 +65,21 @@ class AgentLogHandler(AsyncCallbackHandler):
                 if getattr(message, "usage_metadata", None):
                     usage.append(message.usage_metadata)
                 for call in getattr(message, "tool_calls", []):
+                    tool_name = call.get("name")
                     log_event(
                         "tool.requested",
                         run_id=str(run_id),
                         tool_call_id=call.get("id"),
-                        tool=call.get("name"),
+                        tool=tool_name,
                         argument_count=len(call.get("args", {})) if isinstance(call.get("args"), dict) else None,
                     )
+                    stage = {
+                        "load_skill": "reviewing_method",
+                        "web_search": "searching_sources",
+                        "crawl_web_markdown": "reading_sources",
+                    }.get(tool_name)
+                    if stage:
+                        await self.report_progress(stage)
         self.finish("model", run_id, usage=usage)
 
     async def on_llm_error(self, error, *, run_id, **kwargs):
