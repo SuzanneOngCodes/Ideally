@@ -11,6 +11,65 @@ interface LiveCard {
   sources: { title: string; url: string; excerpt?: string }[];
 }
 
+export interface ReasoningMapDiagramNode {
+  id: ResearchMapCard['id'];
+  label: string;
+  title: string;
+  summary: string;
+  status: CardEvidenceStatus;
+  source_count: number;
+}
+
+export interface ReasoningMapDiagramEdge {
+  source: ResearchMapCard['id'];
+  target: ResearchMapCard['id'];
+  label: string;
+}
+
+export interface MindMapNode {
+  id: string;
+  parent_id?: string | null;
+  label: string;
+  description?: string;
+  level: number;
+  side?: 'left' | 'right' | null;
+  branch_color?: string | null;
+  children: string[];
+  collapsed?: boolean;
+}
+
+export interface ReasoningMapUI {
+  type: 'reasoning-map-diagram';
+  version: 1;
+  trigger?: 'user-request';
+  title: string;
+  format?: 'flow' | 'mermaid-mindmap';
+  mermaid?: string;
+  nodes: ReasoningMapDiagramNode[];
+  edges: ReasoningMapDiagramEdge[];
+  mindmap_nodes?: MindMapNode[];
+}
+
+export interface MermaidMindmapActivity {
+  kind: 'mermaid-mindmap';
+  status: 'generating' | 'ready';
+  source: 'active-session';
+  type?: 'reasoning-map-diagram';
+  format?: 'mermaid-mindmap';
+  title: string;
+  mermaid: string;
+  sourceCount?: number;
+  nodes?: ReasoningMapDiagramNode[];
+  mindmapNodes?: MindMapNode[];
+}
+
+const diagramRequestPattern = /(?:\b(?:show|draw|render|display|create|make|generate|visuali[sz](?:e|ation))\b.{0,40}\b(?:diagram|flowchart|graph|map)\b|\b(?:i\s+want|i\s+need|i['’]d\s+like)\b.{0,40}\b(?:diagram|flowchart|graph|map)\b|^\s*(?:diagram|flowchart)\s*(?:please|pls)?\s*[.!?]*$|(?:vẽ|tạo|hiển\s*thị|trình\s*bày|cho\s+(?:tôi|mình)\s+xem|muốn\s+(?:xem|có)|cần\s+xem|trực\s*quan\s*hóa|trực\s*quan\s*hoá|minh\s*họa|minh\s*hoạ).{0,40}(?:sơ\s*đồ|sơ\s*do|biểu\s*đồ|diagram|flowchart|map|luồng)|(?:sơ\s*đồ|sơ\s*do|biểu\s*đồ).{0,25}(?:để\s+dễ\s+nhìn|cho\s+dễ\s+hiểu))/i;
+const noDiagramRequestPattern = /(?:\bno\b|\bdon['’]?t\b|\bwithout\b|không|ko|đừng|chưa\s*cần).{0,40}(?:diagram|flowchart|graph|map|sơ\s*đồ|sơ\s*do|biểu\s*đồ)/i;
+
+export function isDiagramRequestText(text: string): boolean {
+  return diagramRequestPattern.test(text) && !noDiagramRequestPattern.test(text);
+}
+
 export type LiveReasoningMap = Record<ResearchMapCard['id'], LiveCard>;
 
 export function liveReasoningCards(map: LiveReasoningMap | null): ResearchMapCard[] {

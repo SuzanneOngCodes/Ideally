@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
 import { ShieldAlert, ShieldCheck, Search, Sparkles, ExternalLink, Check, Copy, Loader2, Zap, BookOpen, Gauge, FileWarning } from "lucide-react";
 import { EvidenceAuditReport, ResearchBrief, HallucinationRisk } from "../types/research";
 import { renderScholarlyText } from "../utils/textFormat";
@@ -8,12 +8,13 @@ import { MarkdownContent } from "./MarkdownContent";
 
 interface EvidenceAuditViewProps {
 	brief: ResearchBrief;
-	onAuditText: (text: string) => Promise<EvidenceAuditReport>;
+	onAuditText: (text: string, source: "brief" | "custom") => Promise<EvidenceAuditReport>;
+	sessionId?: string | null;
 	initialCustomText?: string;
 	onNotify?: (message: string) => void;
 }
 
-export const EvidenceAuditView: React.FC<EvidenceAuditViewProps> = ({ brief, onAuditText, initialCustomText = "", onNotify }) => {
+export const EvidenceAuditView: React.FC<EvidenceAuditViewProps> = ({ brief, sessionId, onAuditText, initialCustomText = "", onNotify }) => {
 	const { t } = useLanguage();
 	const [activeTab, setActiveTab] = useState<"brief" | "custom">(initialCustomText ? "custom" : "brief");
 	const [customText, setCustomText] = useState<string>(initialCustomText);
@@ -22,6 +23,49 @@ export const EvidenceAuditView: React.FC<EvidenceAuditViewProps> = ({ brief, onA
 	const [copiedRewrite, setCopiedRewrite] = useState<boolean>(false);
 	const [selectedSnippet, setSelectedSnippet] = useState<string | null>(null);
 	const [statusNotification, setStatusNotification] = useState<string | null>(null);
+	const [auditError, setAuditError] = useState<string | null>(null);
+	const [sessionTopic, setSessionTopic] = useState<string | null>(null);
+
+	useEffect(() => {
+		if (!sessionId) {
+			setSessionTopic(null);
+			return;
+		}
+		const controller = new AbortController();
+		fetch(`/api/v1/sessions/${encodeURIComponent(sessionId)}`, { signal: controller.signal })
+			.then(async (response) => {
+				if (!response.ok) throw new Error(`Unable to load session (${response.status})`);
+				return response.json();
+			})
+			.then((session) => {
+				if (!controller.signal.aborted) {
+					setSessionTopic(session.research?.title?.trim() || session.title || null);
+				}
+			})
+			.catch((error) => {
+				if (!controller.signal.aborted) console.error("Unable to load session topic:", error);
+			});
+		return () => controller.abort();
+	}, [sessionId]);
+
+	useEffect(() => {
+		if (!sessionId) return;
+		const controller = new AbortController();
+		fetch(`/api/v1/sessions/${encodeURIComponent(sessionId)}/audits`, { signal: controller.signal })
+			.then(async (response) => {
+				if (!response.ok) throw new Error(`Unable to load session audit history (${response.status})`);
+				return response.json();
+			})
+			.then((data) => {
+				if (!controller.signal.aborted && Array.isArray(data.audits) && data.audits.length > 0) {
+					setReport(data.audits[0]);
+				}
+			})
+			.catch((error) => {
+				if (!controller.signal.aborted) console.error("Unable to load audit history:", error);
+			});
+		return () => controller.abort();
+	}, [sessionId]);
 
 	// Demo test snippets with localized labels
 	const demoSnippets = [
@@ -44,6 +88,7 @@ export const EvidenceAuditView: React.FC<EvidenceAuditViewProps> = ({ brief, onA
 
 	const handleAudit = async (targetText?: string) => {
 		setIsLoading(true);
+		setAuditError(null);
 		try {
 			// Reset the report and selected snippet when starting a new audit
 			setReport(null);
@@ -51,10 +96,11 @@ export const EvidenceAuditView: React.FC<EvidenceAuditViewProps> = ({ brief, onA
 
 			// Start new audit
 			const textToAudit = targetText !== undefined ? targetText : activeTab === "brief" ? `${brief.title}\n\nCore Problem: ${brief.problemValidation.coreProblemStatement}\n\nExisting Paradigms: ${brief.knowledgeLandscape.existingApproaches.map((a) => `${a.approachName}: ${a.representativeParadigm}`).join("; ")}\n\nHypothesis: ${brief.experimentDesign.falsifiableHypothesis}` : customText;
-			const result = await onAuditText(textToAudit);
+			const result = await onAuditText(textToAudit, targetText !== undefined || activeTab === "custom" ? "custom" : "brief");
 			setReport(result);
 		} catch (err) {
 			console.error("Audit failed:", err);
+			setAuditError(err instanceof Error ? err.message : "Audit failed. Please try again.");
 		} finally {
 			setIsLoading(false);
 		}
@@ -186,7 +232,7 @@ export const EvidenceAuditView: React.FC<EvidenceAuditViewProps> = ({ brief, onA
 								setSelectedSnippet(null);
 							}}
 							className={`px-3.5 py-1.5 text-xs font-semibold rounded-lg transition-colors cursor-pointer ${activeTab === "brief" ? "bg-slate-900 text-white" : "bg-slate-100 text-slate-700 hover:bg-slate-200"}`}>
-							{t("auditorTabBrief")}
+							{sessionId ? t("auditorTabSession") : t("auditorTabBrief")}
 						</button>
 						<button
 							onClick={() => {
@@ -219,7 +265,7 @@ export const EvidenceAuditView: React.FC<EvidenceAuditViewProps> = ({ brief, onA
 				)}
 
 				<div className='flex items-center justify-between pt-2'>
-					<span className='text-xs text-slate-400 font-mono-tabular'>{activeTab === "brief" ? `${t("auditorTargetBrief")} ("${brief.title.slice(0, 45)}...")` : `${customText.split(/\s+/).filter(Boolean).length} ${t("auditorWordsReady")}`}</span>
+					<span className='text-xs text-slate-400 font-mono-tabular'>{activeTab === "brief" ? `${sessionId ? t("auditorTargetSession") : t("auditorTargetBrief")} ("${(sessionId ? sessionTopic || brief.title : brief.title).slice(0, 45)}...")` : `${customText.split(/\s+/).filter(Boolean).length} ${t("auditorWordsReady")}`}</span>
 
 					<button onClick={() => handleAudit()} disabled={isLoading || (activeTab === "custom" && !customText.trim())} className='px-5 py-2 text-xs font-semibold text-white bg-slate-900 hover:bg-slate-800 disabled:opacity-50 rounded-lg transition-colors flex items-center gap-1.5 shadow-2xs cursor-pointer'>
 						{isLoading ? (
@@ -235,6 +281,7 @@ export const EvidenceAuditView: React.FC<EvidenceAuditViewProps> = ({ brief, onA
 						)}
 					</button>
 				</div>
+				{auditError && <p role="alert" className="rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-xs text-rose-800">{auditError}</p>}
 			</div>
 
 			{/* Pre-Audit Informational Guide & Quick Test Cards when no report has been generated */}

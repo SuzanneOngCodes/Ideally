@@ -26,6 +26,20 @@ import { PRESET_SCENARIOS, PresetScenario } from "./data/presetScenarios";
 import { ResearchBrief, UserIntake, SocraticDefenseProbe, EvidenceAuditReport, AudienceMode, ResearchMapCard, StructuredEvidenceSource, ExperimentDesign } from "./types/research";
 import { generateMarkdownBrief, downloadMarkdownFile } from "./utils/exportBrief";
 import { useLanguage } from "./context/LanguageContext";
+import { EventType, HttpAgent, type BaseEvent } from "@ag-ui/client";
+import type { MermaidMindmapActivity } from "./utils/liveReasoningMap";
+
+const sessionIdFromPath = (pathname: string): string | null => {
+	const match = pathname.match(/^\/([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\/?$/i);
+	return match?.[1] || null;
+};
+
+const setSessionPath = (sessionId: string | null, replace = false) => {
+	const pathname = sessionId ? `/${encodeURIComponent(sessionId)}` : "/";
+	if (window.location.pathname === pathname) return;
+	const method = replace ? "replaceState" : "pushState";
+	window.history[method]({}, "", `${pathname}${window.location.search}${window.location.hash}`);
+};
 
 export default function App() {
 	const { t } = useLanguage();
@@ -33,16 +47,22 @@ export default function App() {
 	const [activePreset, setActivePreset] = useState<PresetScenario>(PRESET_SCENARIOS[0]);
 	const [currentBrief, setCurrentBrief] = useState<ResearchBrief>(PRESET_SCENARIOS[0].brief);
 	const [currentProbes, setCurrentProbes] = useState<SocraticDefenseProbe[]>(PRESET_SCENARIOS[0].defenseProbes);
-	const [activeTab, setActiveTab] = useState<NavTab>("home");
+	const [defenseProbeBriefId, setDefenseProbeBriefId] = useState<string | null>(null);
+	const [activeTab, setActiveTab] = useState<NavTab>(() => sessionIdFromPath(window.location.pathname) ? "workspace" : "home");
 	const [audienceMode, setAudienceMode] = useState<AudienceMode>("beginner");
 	const [advisorQuery, setAdvisorQuery] = useState<string>("");
-	const [chatSessionId, setChatSessionId] = useState<string | null>(null);
+	const [chatSessionId, setChatSessionId] = useState<string | null>(() => sessionIdFromPath(window.location.pathname));
+	const [isSessionHydrated, setIsSessionHydrated] = useState(() => !sessionIdFromPath(window.location.pathname));
 	const [briefSource, setBriefSource] = useState<"preset" | "ai" | "unavailable">("preset");
 	const [userSelectedDirectionId, setUserSelectedDirectionId] = useState<string | null>(null);
 	const [liveExperiment, setLiveExperiment] = useState<ExperimentDesign | null>(null);
 	const [experimentError, setExperimentError] = useState<string | null>(null);
 	const [isExperimentLoading, setIsExperimentLoading] = useState(false);
 	const [experimentRetry, setExperimentRetry] = useState(0);
+	const [isProposalLoading, setIsProposalLoading] = useState(false);
+	const [proposalError, setProposalError] = useState<string | null>(null);
+	const [proposalRetry, setProposalRetry] = useState(0);
+	const [proposalActivity, setProposalActivity] = useState<MermaidMindmapActivity | null>(null);
 	const [auditCustomText, setAuditCustomText] = useState<string>("");
 	const [isPresetsOpen, setIsPresetsOpen] = useState(false);
 	const [isMethodologyOpen, setIsMethodologyOpen] = useState(false);
@@ -53,6 +73,54 @@ export default function App() {
 	const [isTechStackOpen, setIsTechStackOpen] = useState(false);
 	const [isLoading, setIsLoading] = useState(false);
 	const [statusMessage, setStatusMessage] = useState<string | null>(null);
+
+	const handleChatSessionChange = (sessionId: string | null) => {
+		setChatSessionId(sessionId);
+		setSessionPath(sessionId);
+	};
+
+	useEffect(() => {
+		const handlePopState = () => {
+			const sessionId = sessionIdFromPath(window.location.pathname);
+			setChatSessionId(sessionId);
+			setActiveTab(sessionId ? "workspace" : "home");
+		};
+		window.addEventListener("popstate", handlePopState);
+		return () => window.removeEventListener("popstate", handlePopState);
+	}, []);
+
+	useEffect(() => {
+		if (!chatSessionId) {
+			setIsSessionHydrated(true);
+			return;
+		}
+		const controller = new AbortController();
+		setIsSessionHydrated(false);
+		const hydrateSessionWorkspace = async () => {
+			try {
+				const response = await fetch(`/api/v1/sessions/${encodeURIComponent(chatSessionId)}`, { signal: controller.signal });
+				if (!response.ok) return;
+				const session = await response.json();
+				const savedBrief = session.research?.proposal_brief as ResearchBrief | undefined;
+				if (savedBrief?.title && Array.isArray(savedBrief.candidateDirections) && savedBrief.experimentDesign) {
+					setCurrentBrief(savedBrief);
+					setBriefSource("ai");
+					setUserSelectedDirectionId(savedBrief.selectedDirectionId || null);
+				}
+				const savedDefense = session.research?.defense_lab;
+				if (savedDefense?.brief_id && Array.isArray(savedDefense.probes) && savedDefense.probes.length === 3) {
+					setCurrentProbes(savedDefense.probes);
+					setDefenseProbeBriefId(savedDefense.brief_id);
+				}
+			} catch (error) {
+				if (!controller.signal.aborted) console.error("Unable to hydrate saved session workspace:", error);
+			} finally {
+				if (!controller.signal.aborted) setIsSessionHydrated(true);
+			}
+		};
+		void hydrateSessionWorkspace();
+		return () => controller.abort();
+	}, [chatSessionId]);
 
 	const handleOpenGlossary = (term?: string) => {
 		setGlossaryTerm(term || "");
@@ -117,6 +185,131 @@ export default function App() {
 		return () => controller.abort();
 	}, [activeTab, chatSessionId, briefSource, userSelectedDirectionId, experimentRetry]);
 
+	useEffect(() => {
+		if (activeTab !== "brief") return;
+		if (!chatSessionId) {
+			setProposalError("Open a research session and build its reasoning map to generate a proposal brief.");
+			setIsProposalLoading(false);
+			setProposalActivity(null);
+			return;
+		}
+		let cancelled = false;
+		setProposalError(null);
+		setIsProposalLoading(true);
+		const controller = new AbortController();
+		let agent: HttpAgent | null = null;
+		let subscription: { unsubscribe: () => void } | null = null;
+
+		const startGenerationStream = () => {
+			if (cancelled) return;
+			let receivedBrief = false;
+			agent = new HttpAgent({
+				url: `/api/v1/research/${encodeURIComponent(chatSessionId)}/brief/stream`,
+				debug: false,
+			});
+			setProposalActivity({
+				kind: "mermaid-mindmap",
+				status: "generating",
+				source: "active-session",
+				title: "Session mindmap",
+				mermaid: "",
+			});
+			subscription = agent.run({
+				threadId: chatSessionId,
+				runId: crypto.randomUUID(),
+				protocolVersion: "1.0",
+				state: { regenerate: false },
+				messages: [],
+				tools: [],
+				context: [],
+				forwardedProps: {},
+			}).subscribe({
+				next: (event: BaseEvent) => {
+					if (cancelled) return;
+					if (event.type === EventType.ACTIVITY_SNAPSHOT && event.activityType === "MERMAID_MINDMAP") {
+						setProposalActivity(event.content as MermaidMindmapActivity);
+					}
+					if (event.type === EventType.STATE_SNAPSHOT) {
+						const snapshot = event.snapshot as { proposalBrief?: ResearchBrief };
+						const data = snapshot.proposalBrief;
+						if (!data?.title || !Array.isArray(data.candidateDirections) || !data.experimentDesign || !data.researchDiagram) {
+							setProposalError("Proposal Brief API returned an incomplete brief");
+							return;
+						}
+						receivedBrief = true;
+						setCurrentBrief(data);
+						setBriefSource("ai");
+						setUserSelectedDirectionId(data.selectedDirectionId || null);
+					}
+					if (event.type === EventType.RUN_ERROR) {
+						const message = typeof event.message === "string" ? event.message : "";
+						setIsProposalLoading(false);
+						setProposalError(message === "Build a research reasoning map before generating a proposal brief"
+							? "Hãy trao đổi chủ đề và hoàn thiện Reasoning Map trước khi tạo Proposal Brief."
+							: message || "Không thể tổng hợp Proposal Brief lúc này. Vui lòng thử lại.");
+					}
+				},
+				error: (error: unknown) => {
+					if (!cancelled) {
+						setProposalError(error instanceof Error ? error.message : "Unable to create proposal brief");
+						setIsProposalLoading(false);
+					}
+				},
+				complete: () => {
+					if (!cancelled) {
+						if (!receivedBrief) setProposalError((current) => current || "Proposal Brief API returned no final state");
+						setIsProposalLoading(false);
+					}
+				},
+			});
+		};
+
+		const loadOrGenerateBrief = async () => {
+			try {
+				const cachedResponse = await fetch(`/api/v1/research/${encodeURIComponent(chatSessionId)}/brief`, { signal: controller.signal });
+				if (cachedResponse.ok) {
+					const data = await cachedResponse.json() as ResearchBrief;
+					if (!data.title || !Array.isArray(data.candidateDirections) || !data.experimentDesign || !data.researchDiagram) {
+						throw new Error("The saved proposal brief is incomplete");
+					}
+					setCurrentBrief(data);
+					setBriefSource("ai");
+					setUserSelectedDirectionId(data.selectedDirectionId || null);
+					setProposalActivity({
+						kind: "mermaid-mindmap",
+						status: "ready",
+						source: "active-session",
+						type: data.researchDiagram.type,
+						format: data.researchDiagram.format === "mermaid-mindmap" ? data.researchDiagram.format : "mermaid-mindmap",
+						title: data.researchDiagram.title,
+						mermaid: data.researchDiagram.mermaid || "",
+						nodes: data.researchDiagram.nodes,
+					});
+					setIsProposalLoading(false);
+					return;
+				}
+				if (cachedResponse.status !== 404) {
+					const error = await cachedResponse.json().catch(() => ({}));
+					throw new Error(typeof error.detail === "string" ? error.detail : `Unable to load saved proposal brief (${cachedResponse.status})`);
+				}
+				startGenerationStream();
+			} catch (error) {
+				if (!cancelled) {
+					setProposalError(error instanceof Error ? error.message : "Unable to load proposal brief");
+					setIsProposalLoading(false);
+				}
+			}
+		};
+		void loadOrGenerateBrief();
+
+		return () => {
+			cancelled = true;
+			controller.abort();
+			agent?.abortRun();
+			subscription?.unsubscribe();
+		};
+	}, [activeTab, chatSessionId, proposalRetry]);
+
 	const handleAudienceModeToggle = () => {
 		setAudienceMode((prev) => {
 			const next = prev === "beginner" ? "experienced" : "beginner";
@@ -126,13 +319,14 @@ export default function App() {
 	};
 
 	const handleSelectPreset = (preset: PresetScenario) => {
-		setChatSessionId(null);
+		handleChatSessionChange(null);
 		setBriefSource("preset");
 		setUserSelectedDirectionId(null);
 		setLiveExperiment(null);
 		setActivePreset(preset);
 		setCurrentBrief(preset.brief);
 		setCurrentProbes(preset.defenseProbes);
+		setDefenseProbeBriefId(null);
 		setActiveTab("workspace");
 		showStatus(`Loaded case study: ${preset.name}`);
 	};
@@ -157,13 +351,14 @@ export default function App() {
 				setUserSelectedDirectionId(null);
 				setLiveExperiment(null);
 			}
-			setChatSessionId(null);
+			handleChatSessionChange(null);
 			setActiveTab("workspace");
 			showStatus("Routed to Interactive Research Workspace");
 		}
 	};
 
 	const handleNewIntake = () => {
+		handleChatSessionChange(null);
 		setActiveTab("intake");
 	};
 
@@ -222,25 +417,12 @@ export default function App() {
 
 			const data = await response.json();
 			if (data.brief) {
-				setChatSessionId(null);
+				handleChatSessionChange(null);
 				setBriefSource(data.source && data.source !== "curated_advisor_engine" ? "ai" : "unavailable");
 				setUserSelectedDirectionId(null);
 				setLiveExperiment(null);
 				setCurrentBrief(data.brief);
-				// Also fetch fresh defense probes for this new brief
-				try {
-					const probeRes = await fetch("/api/advisor/socratic-defense", {
-						method: "POST",
-						headers: { "Content-Type": "application/json" },
-						body: JSON.stringify({ brief: data.brief }),
-					});
-					const probeData = await probeRes.json();
-					if (probeData.probes && probeData.probes.length > 0) {
-						setCurrentProbes(probeData.probes);
-					}
-				} catch {
-					// Keep existing probes if defense endpoint stalls
-				}
+				setDefenseProbeBriefId(null);
 
 				// Navigate directly to Problem Validation stage to walk the user through reasoning
 				setActiveTab("problem");
@@ -268,63 +450,88 @@ export default function App() {
 		showStatus(`Selected: ${dir.title}`);
 	};
 
-	const handleRefreshProbes = async () => {
+	const handleRefreshProbes = async (forceGenerate = true) => {
 		try {
-			const res = await fetch("/api/advisor/socratic-defense", {
+			if (chatSessionId && !forceGenerate) {
+				const cached = await fetch(`/api/v1/defense/probes/${encodeURIComponent(chatSessionId)}`);
+				if (cached.ok) {
+					const saved = await cached.json();
+					if (saved.brief_id === currentBrief.id && Array.isArray(saved.probes) && saved.probes.length === 3) {
+						setCurrentProbes(saved.probes);
+						setDefenseProbeBriefId(saved.brief_id);
+						return;
+					}
+				}
+			}
+			const res = await fetch("/api/v1/defense/probes", {
 				method: "POST",
 				headers: { "Content-Type": "application/json" },
-				body: JSON.stringify({ brief: currentBrief }),
+				body: JSON.stringify({ brief: currentBrief, session_id: chatSessionId }),
 			});
 			const data = await res.json();
-			if (data.probes && data.probes.length > 0) {
-				setCurrentProbes(data.probes);
-				showStatus("Committee formulated 3 new defense probes.");
-			}
+			if (!res.ok) throw new Error(data.detail || `Defense API error (${res.status})`);
+			if (!Array.isArray(data.probes) || data.probes.length !== 3) throw new Error("Defense API returned an invalid probe set");
+			setCurrentProbes(data.probes);
+			setDefenseProbeBriefId(currentBrief.id);
+			showStatus("Committee formulated 3 new defense probes.");
 		} catch (err) {
 			console.error("Error refreshing probes:", err);
+			showStatus(err instanceof Error ? err.message : "Unable to generate defense probes.");
 		}
 	};
 
+	useEffect(() => {
+		if (activeTab !== "defense" || (chatSessionId && !isSessionHydrated) || defenseProbeBriefId === currentBrief.id) return;
+		setCurrentProbes([]);
+		void handleRefreshProbes(false);
+	}, [activeTab, currentBrief.id, chatSessionId, isSessionHydrated]);
+
 	const handleSubmitDefense = async (probeId: string, answer: string) => {
 		try {
-			const res = await fetch("/api/advisor/socratic-defense", {
+			const probe = currentProbes.find((item) => item.id === probeId);
+			if (!probe) throw new Error("Defense question is no longer available. Generate new committee probes.");
+			const res = await fetch("/api/v1/defense/evaluate", {
 				method: "POST",
 				headers: { "Content-Type": "application/json" },
 				body: JSON.stringify({
 					brief: currentBrief,
-					userProbeAnswer: answer,
-					probeId,
+					session_id: chatSessionId,
+					probe,
+					answer,
 				}),
 			});
 			const data = await res.json();
-			return data;
+			if (!res.ok) throw new Error(data.detail || `Defense API error (${res.status})`);
+			setCurrentProbes((previous) => previous.map((item) => item.id === probeId
+				? { ...item, userDefenseAnswer: answer, feedback: data }
+				: item));
+			return { evaluation: data };
 		} catch (err) {
 			console.error("Error submitting defense:", err);
-			return {
-				evaluation: {
-					strengthScore: 8,
-					strengths: ["Addressed the operational mechanism cleanly."],
-					vulnerabilities: ["Could strengthen statistical power citation."],
-					advisorTip: "Mention your primary control condition to silence Reviewer 2.",
-				},
-			};
+			throw err;
 		}
 	};
 
-	const handleAuditText = async (text: string): Promise<EvidenceAuditReport> => {
+	const handleAuditText = async (text: string, source: "brief" | "custom"): Promise<EvidenceAuditReport> => {
 		const res = await fetch("/api/advisor/audit-citations", {
 			method: "POST",
 			headers: { "Content-Type": "application/json" },
 			body: JSON.stringify({
-				text,
+				text: source === "custom" || !chatSessionId ? text : undefined,
 				brief: currentBrief,
-				domain: currentBrief.intake.domain,
+				domain: source === "custom" || !chatSessionId ? currentBrief.intake.domain : undefined,
+				session_id: chatSessionId,
+				source,
 			}),
 		});
 		if (!res.ok) {
-			throw new Error("Failed to audit citations and text");
+			const error = await res.json().catch(() => ({}));
+			throw new Error(typeof error.detail === "string" ? error.detail : "Failed to audit citations and text");
 		}
 		const data = await res.json();
+		if (data.engine === "local_rule_and_lexical_auditor") {
+			showStatus("AI auditor was unavailable; local heuristic checks were used for this report.");
+		}
 		return data.report;
 	};
 
@@ -339,7 +546,7 @@ export default function App() {
 	};
 
 	return (
-		<div className='min-h-screen bg-slate-50 text-slate-900 flex flex-col font-sans'>
+		<div className={`${activeTab === "workspace" ? "h-dvh overflow-hidden" : "min-h-screen"} bg-slate-50 text-slate-900 flex flex-col font-sans`}>
 			{/* Global Header */}
 			<Header activeTab={activeTab} onSelectTab={handleSelectTab} onOpenPresets={() => setIsPresetsOpen(true)} onNewIntake={handleNewIntake} onExport={handleExportBrief} hasActiveBrief={!!currentBrief} onOpenMethodology={() => setIsMethodologyOpen(true)} onOpenSearch={() => setIsSearchOpen(true)} onOpenGlossary={handleOpenGlossary} onOpenPrinciples={() => setIsPrinciplesOpen(true)} onOpenTechStack={() => setIsTechStackOpen(true)} />
 
@@ -350,7 +557,7 @@ export default function App() {
 			{statusMessage && <div className='fixed bottom-4 right-4 z-50 bg-slate-900 text-white px-4 py-2.5 rounded-xl text-xs font-semibold shadow-xl border border-slate-700/50 animate-in fade-in slide-in-from-bottom-2'>{statusMessage}</div>}
 
 			{/* Main Content Area */}
-			<main className='flex-1 pb-16'>
+			<main className={activeTab === "workspace" ? "flex-1 min-h-0 overflow-hidden" : "flex-1 pb-16"}>
 				{activeTab === "home" && <SmartSearchLanding onRoute={handleSmartRoute} onSelectPreset={handleSelectPreset} onNewIntake={handleNewIntake} onOpenMethodology={() => setIsMethodologyOpen(true)} />}
 
 				{activeTab === "workspace" && currentBrief && (
@@ -370,7 +577,7 @@ export default function App() {
 						onOpenPrinciples={() => setIsPrinciplesOpen(true)}
 						initialAdvisorQuery={advisorQuery}
 						chatSessionId={chatSessionId}
-						onChatSessionChange={setChatSessionId}
+						onChatSessionChange={handleChatSessionChange}
 					/>
 				)}
 
@@ -395,15 +602,15 @@ export default function App() {
 					</div>
 				))}
 
-				{activeTab === "brief" && <ResearchBriefView brief={currentBrief} onOpenDefense={() => setActiveTab("defense")} onOpenAuditor={() => setActiveTab("auditor")} onNavigateStage={(stage) => setActiveTab(stage)} />}
+				{activeTab === "brief" && <ResearchBriefView brief={currentBrief} isLoading={isProposalLoading} error={proposalError} proposalActivity={proposalActivity} onRetry={() => setProposalRetry((value) => value + 1)} onOpenDefense={() => setActiveTab("defense")} onOpenAuditor={() => setActiveTab("auditor")} onNavigateStage={(stage) => setActiveTab(stage)} />}
 
 				{activeTab === "defense" && <SocraticDefenseView brief={currentBrief} probes={currentProbes} onRefreshProbes={handleRefreshProbes} onSubmitDefense={handleSubmitDefense} />}
 
-				{activeTab === "auditor" && <EvidenceAuditView brief={currentBrief} onAuditText={handleAuditText} initialCustomText={auditCustomText} onNotify={showStatus} />}
+				{activeTab === "auditor" && <EvidenceAuditView key={chatSessionId || "no-session"} brief={currentBrief} sessionId={chatSessionId} onAuditText={handleAuditText} initialCustomText={auditCustomText} onNotify={showStatus} />}
 			</main>
 
 			{/* Footer (Quiet, unboxed copyright & info) */}
-			<footer className='no-print border-t border-slate-200 bg-white py-6 text-center text-xs text-slate-500'>
+			<footer className={`no-print border-t border-slate-200 bg-white py-6 text-center text-xs text-slate-500 ${activeTab === "workspace" ? "hidden" : ""}`}>
 				<div className='max-w-7xl mx-auto px-4 sm:px-6 flex flex-col sm:flex-row items-center justify-between gap-2'>
 					<span>{t("footerTagline")}</span>
 					<div className='flex items-center gap-4'>

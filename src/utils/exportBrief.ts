@@ -2,6 +2,14 @@ import { ResearchBrief } from '../types/research';
 
 export function generateMarkdownBrief(brief: ResearchBrief): string {
   const selectedDirection = brief.candidateDirections.find(d => d.id === brief.selectedDirectionId) || brief.candidateDirections[0];
+  const mindmapMarkdown = brief.researchDiagram?.format === 'mermaid-mindmap' && brief.researchDiagram.mermaid
+    ? `## Session Mindmap
+
+\`\`\`mermaid
+${brief.researchDiagram.mermaid}
+\`\`\`
+`
+    : '';
 
   return `# ${brief.title}
 **Evidence-Backed Research Brief & Experiment Protocol**
@@ -21,6 +29,8 @@ ${brief.problemValidation.coreProblemStatement}
 
 ### Real-World Impact
 ${brief.problemValidation.realWorldImpact}
+
+${mindmapMarkdown}
 
 ### Stakeholders Affected
 ${brief.problemValidation.stakeholdersAffected.map(s => `- ${s}`).join('\n')}

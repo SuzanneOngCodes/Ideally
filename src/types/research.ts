@@ -188,6 +188,7 @@ export interface ResearchBrief {
 	};
 	bibtexSnippet: string;
 	researchMapCards?: ResearchMapCard[];
+	researchDiagram?: import("../utils/liveReasoningMap").ReasoningMapUI;
 	isLocalized?: boolean;
 	localizedLang?: string;
 }

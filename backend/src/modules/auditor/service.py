@@ -5,6 +5,7 @@ import logging
 import urllib.request
 import urllib.parse
 import asyncio
+from difflib import SequenceMatcher
 from datetime import datetime
 from typing import Dict, Any, Optional, List
 
@@ -127,8 +128,17 @@ class CitationAuditService:
 
     async def _verify_single_citation(self, citation: Dict[str, Any]) -> Dict[str, Any]:
         """Offloads blocking urllib queries safely into distinct background executor threads."""
-        search_query = citation.get("paperTitle") or citation.get("citationText")
-        if not search_query or search_query == "...":
+        search_query = citation.get("paperTitle") or ""
+        informative_tokens = set(re.findall(r"[a-z0-9]+", search_query.lower())) - {
+            "a", "an", "and", "of", "the", "for", "to", "in", "on", "with", "et", "al"
+        }
+        if len(informative_tokens) < 3:
+            citation["status"] = "unverifiable"
+            citation["groundedSourceUrl"] = ""
+            citation["confidenceScore"] = min(citation.get("confidenceScore", 40), 40)
+            citation["verdictReason"] = (
+                "The supplied citation does not include enough title information for a reliable match."
+            )
             return citation
 
         # Dispatch tasks concurrently to distinct runtime threads without blocking main event loop
@@ -138,17 +148,40 @@ class CitationAuditService:
         arxiv_res, tavily_res = await asyncio.gather(arxiv_task, tavily_task)
         combined_results = arxiv_res + tavily_res
 
-        if combined_results:
-            best_match = combined_results[0]
+        expected_title = " ".join(sorted(informative_tokens))
+        ranked_matches = sorted(
+            combined_results,
+            key=lambda result: SequenceMatcher(
+                None,
+                expected_title,
+                " ".join(sorted(
+                    set(re.findall(r"[a-z0-9]+", (result.get("title") or "").lower()))
+                    - {"a", "an", "and", "of", "the", "for", "to", "in", "on", "with"}
+                )),
+            ).ratio(),
+            reverse=True,
+        )
+        best_match = ranked_matches[0] if ranked_matches else None
+        best_title = " ".join(
+            sorted(
+                set(re.findall(r"[a-z0-9]+", (best_match.get("title") or "").lower()))
+                - {"a", "an", "and", "of", "the", "for", "to", "in", "on", "with"}
+            )
+        ) if best_match else ""
+        title_similarity = SequenceMatcher(None, expected_title, best_title).ratio()
+        if best_match and title_similarity >= 0.72:
             citation["groundedSourceUrl"] = best_match["url"]
             citation["paperTitle"] = best_match["title"]
             citation["status"] = "verified"
-            citation["confidenceScore"] = 95
-            citation["verdictReason"] = "Grounded match found via thread-isolated urllib extraction pipeline."
+            citation["confidenceScore"] = round(70 + title_similarity * 25)
+            citation["verdictReason"] = "A close title match was found in the searched scholarly indexes."
         else:
-            citation["status"] = "phantom_hallucination"
-            citation["confidenceScore"] = 15
-            citation["verdictReason"] = "No matching bibliographic records discovered via live index sweeps."
+            citation["status"] = "unverifiable"
+            citation["groundedSourceUrl"] = ""
+            citation["confidenceScore"] = min(citation.get("confidenceScore", 40), 40)
+            citation["verdictReason"] = (
+                "No close title match was found in the searched indexes; this does not prove the citation is fabricated."
+            )
         
         return citation
 
@@ -203,6 +236,19 @@ class CitationAuditService:
         
         detected_patterns = []
         slop_count = 0
+        rewrite_map = {
+            "delve": "examine",
+            "tapestry": "interactions",
+            "pivotal role": "important role",
+            "revolutionary paradigm": "approach",
+            "testament to": "evidence of",
+            "multifaceted": "multiple",
+            "seamlessly": "",
+            "game-changer": "approach",
+            "beacon of": "example of",
+            "unprecedented": "new",
+            "it is important to remember": "",
+        }
         
         citation_matches = re.findall(r'\[\d+\]|\([A-Za-z]+(?:\s+et\s+al\.)?,\s*\d{4}\)', target_text)
         simulated_citations = []
@@ -234,13 +280,37 @@ class CitationAuditService:
                     "phrase": phrase,
                     "category": "cliche_metaphor",
                     "explanation": f"The term '{phrase}' is a high-frequency generative AI filler phrase.",
-                    "suggestedRewrite": "[Omit phrase or state direct empirical impact]"
+                    "suggestedRewrite": rewrite_map[phrase]
                 })
 
         slop_score = min(100, slop_count * 15)
         has_numbers = len(re.findall(r'\b\d+(?:\.\d+)?%?|\bp\s*<\s*0\.\d+', target_text))
         empirical_density = 80 if has_numbers > 3 else 40
-        overall_integrity = max(0, 100 - slop_score)
+        citation_risks = {
+            "phantom_hallucination": 100,
+            "attribution_drift": 70,
+            "unverifiable": 45,
+            "verified": 0,
+        }
+        bibliographic_risk = (
+            round(sum(citation_risks.get(item["status"], 45) for item in simulated_citations) / len(simulated_citations))
+            if simulated_citations
+            else 0
+        )
+        empirical_risk = 100 - empirical_density
+        overall_risk = round(0.5 * bibliographic_risk + 0.35 * slop_score + 0.15 * empirical_risk)
+        overall_integrity = 100 - overall_risk
+        risk_level = (
+            "Critical" if overall_risk >= 80 else
+            "Severe" if overall_risk >= 60 else
+            "Moderate" if overall_risk >= 30 else
+            "Low"
+        )
+        clean_rewrite = target_text
+        for phrase, replacement in rewrite_map.items():
+            clean_rewrite = re.sub(rf"\b{re.escape(phrase)}\b", replacement, clean_rewrite, flags=re.IGNORECASE)
+        clean_rewrite = re.sub(r"\s+([,.;:])", r"\1", clean_rewrite)
+        clean_rewrite = re.sub(r"\s{2,}", " ", clean_rewrite).strip()
 
         return {
             "id": f"audit-{int(time.time() * 1000)}",
@@ -248,14 +318,14 @@ class CitationAuditService:
             "targetDomain": resolved_domain,
             "overallIntegrityScore": overall_integrity,
             "hallucinationRisk": {
-                "score": slop_score,
-                "riskLevel": "Moderate" if slop_score > 50 else "Critical" if slop_score > 80 else "Low",
+                "score": overall_risk,
+                "riskLevel": risk_level,
                 "confidence": 50,
                 "verdictSummary": "Local fallback metrics generated via quantitative token scanning with live verification checks.",
                 "factors": [
-                    { "name": "Bibliographic Authenticity Risk", "score": slop_score, "description": "Analyzed citation validity parameters against live indices during fallback window." },
+                    { "name": "Bibliographic Authenticity Risk", "score": bibliographic_risk, "description": "Citation title matches were checked against available scholarly indexes; unresolved citations remain unverified." },
                     { "name": "Synthetic Stylometric Clumping", "score": slop_score, "description": f"Found {slop_count} standard AI tokens." },
-                    { "name": "Empirical Verification Deficit", "score": empirical_density, "description": "Analyzing density trace variables programmatic parameters." }
+                    { "name": "Empirical Verification Deficit", "score": empirical_risk, "description": "A local heuristic estimated how many measurable claims and statistical values appear in the text." }
                 ],
                 "flaggedSnippets": []
             },
@@ -265,7 +335,7 @@ class CitationAuditService:
                 "empiricalDensityScore": empirical_density,
                 "detectedPatterns": detected_patterns,
                 "critiqueSummary": "Local deterministic fallback completed with secondary live validation pools successfully.",
-                "cleanScholarlyRewrite": target_text
+                "cleanScholarlyRewrite": clean_rewrite
             },
             "recommendations": [
                 "Retry auditing through standard active LLM engine cluster endpoints when upstream limits lift.",

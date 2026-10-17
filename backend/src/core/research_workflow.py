@@ -8,7 +8,7 @@ from langchain_core.tools import tool
 
 from src.core.crawl import CrawlService
 from src.core.logger import log_event
-from src.core.research_skills import active_skill
+from src.core.research_skills import active_skill, is_diagram_request
 from src.modules.research.schemas import Source
 
 SkillName = Literal[
@@ -18,6 +18,7 @@ SkillName = Literal[
     "compare-directions",
     "design-experiment",
     "write-research-brief",
+    "visualize-reasoning-map",
 ]
 SKILL_STAGES = {
     "clarify-research-context": "clarify",
@@ -26,6 +27,7 @@ SKILL_STAGES = {
     "compare-directions": "compare",
     "design-experiment": "design",
     "write-research-brief": "brief",
+    "visualize-reasoning-map": "diagram",
 }
 
 
@@ -33,13 +35,14 @@ class ResearchWorkflow:
     def __init__(self, crawler: CrawlService, observed: dict[str, Source], history: list[dict]):
         self.crawler = crawler
         self.observed = observed
+        self.history = [dict(message) for message in history]
         self.loaded: set[str] = set()
         self.crawl_attempts = 0
         self.crawled: set[str] = set()
         self.searched = False
         self.user_urls = {
             url.rstrip(".,;)")
-            for message in history
+            for message in self.history
             if message["role"] == "user"
             for url in re.findall(r'https?://[^\s<>"\]]+', message["content"])
         }
@@ -49,10 +52,29 @@ class ResearchWorkflow:
         async def load_skill(skill: SkillName, task: str) -> str:
             """Load instructions for the current task before doing it. Explain task briefly.
 
-            Choose clarify-research-context for unknown requirements, verify-problem for
+            Choose visualize-reasoning-map only when the user explicitly asks to see or create
+            a diagram/flowchart. Do not load it for ordinary research answers. Choose
+            clarify-research-context for unknown requirements, verify-problem for
             factual investigation, read-research-source before crawling, compare-directions
             for alternatives, design-experiment for experiments, write-research-brief for briefs.
             """
+            latest_user_message = next(
+                (
+                    message["content"]
+                    for message in reversed(self.history)
+                    if message["role"] == "user"
+                ),
+                "",
+            )
+            if skill == "visualize-reasoning-map" and not is_diagram_request(latest_user_message):
+                return json.dumps(
+                    {
+                        "status": "error",
+                        "summary": (
+                            "Load this skill only after an explicit user request for a diagram."
+                        ),
+                    }
+                )
             content = active_skill(SKILL_STAGES[skill], source="load_skill")
             self.loaded.add(skill)
             log_event("skill.selected", skill=skill)
@@ -109,6 +131,15 @@ class ResearchWorkflow:
         return [load_skill, crawl_web_markdown]
 
     def missing_steps(self, research, result):
+        latest_user_message = next(
+            (message["content"] for message in reversed(self.history) if message["role"] == "user"),
+            "",
+        )
+        if is_diagram_request(latest_user_message) and "visualize-reasoning-map" not in self.loaded:
+            return (
+                "The user explicitly requested a diagram. Load visualize-reasoning-map, then "
+                "return the diagram UI only if a reasoning map is available."
+            )
         if (research or result.research or self.searched) and not self.loaded:
             return "Call load_skill for this task before answering."
         if (self.searched and self.observed or self.user_urls) and not self.crawl_attempts:
