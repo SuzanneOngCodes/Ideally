@@ -1,5 +1,5 @@
 import React from "react";
-import { ChevronRight, ChevronLeft, Compass, ArrowLeft } from "lucide-react";
+import { ChevronRight, ChevronLeft, Compass } from "lucide-react";
 import { NavTab } from "./Header";
 import { ResearchBrief } from "../types/research";
 import { useLanguage } from "../context/LanguageContext";
@@ -41,7 +41,7 @@ export const ResearchWorkflowRibbon: React.FC<ResearchWorkflowRibbonProps> = ({ 
 	};
 
 	return (
-		<div className='bg-white border-b border-slate-200/90 shadow-2xs sticky top-16 z-30'>
+		<div className='no-print bg-white border-b border-slate-200/90 shadow-2xs sticky top-16 z-30'>
 			<div className='max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-2 flex items-center justify-between gap-3 overflow-x-auto no-scrollbar'>
 				{/* Left: Quick Return to Workspace & Context */}
 				<div className='flex items-center gap-2.5 shrink-0'>
@@ -55,8 +55,8 @@ export const ResearchWorkflowRibbon: React.FC<ResearchWorkflowRibbonProps> = ({ 
 					</span>
 
 					<div className='hidden md:flex items-center gap-1.5 text-xs text-slate-500'>
-						<span className='font-semibold text-slate-800 font-serif-scholarly truncate max-w-[200px] lg:max-w-xs'>{brief.title}</span>
-						<span className='text-slate-300'>·</span>
+						{/* <span className='font-semibold text-slate-800 font-serif-scholarly truncate max-w-[200px] lg:max-w-xs'>{brief.title}</span>
+						<span className='text-slate-300'>·</span> */}
 						<span className='font-mono-tabular text-[11px] text-slate-400'>Stage {isCoreStage ? currentStageIndex + 1 : 1} of 5</span>
 					</div>
 				</div>

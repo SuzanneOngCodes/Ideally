@@ -125,7 +125,7 @@ Timeline: ${displayBrief.feasibilityAssessment.runwayWeeks} weeks`;
 	}
 
 	return (
-		<div className='max-w-4xl mx-auto py-8 px-4 sm:px-6 space-y-8'>
+		<div className='max-w-5xl mx-auto py-8 px-4 sm:px-6 space-y-8'>
 			{/* Optional Toast Notice */}
 			{translationNotice && (
 				<div className='no-print bg-indigo-900 text-white text-xs px-4 py-2.5 rounded-lg shadow-md flex items-center justify-between transition-all animate-in fade-in slide-in-from-top-2'>
@@ -426,7 +426,7 @@ Timeline: ${displayBrief.feasibilityAssessment.runwayWeeks} weeks`;
 				</section>
 
 				{/* Section 6: Citation & BibTeX */}
-				<section className='space-y-3 pt-4 border-t border-slate-200'>
+				<section className='no-print space-y-3 pt-4 border-t border-slate-200'>
 					<div className='flex items-center justify-between'>
 						<span className='text-xs uppercase tracking-wider font-semibold text-slate-500'>{labels.bibtexTitle}</span>
 						<button onClick={handleCopyBibtex} className='text-xs text-slate-700 hover:text-slate-900 flex items-center gap-1 font-mono-tabular cursor-pointer'>
