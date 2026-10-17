@@ -28,12 +28,17 @@ Cần Python 3.11+ và [uv](https://docs.astral.sh/uv/).
 cd backend
 uv sync
 cp .env.example .env   # Chỉ dùng khi chưa có .env; giữ nguyên key đang có.
-# Điền GOOGLE_API_KEY hoặc GEMINI_API_KEY vào .env
+# Điền GOOGLE_API_KEY hoặc GEMINI_API_KEY và TYPESAFE_API_KEY vào .env
 uv run uvicorn src.main:app --reload --host 127.0.0.1 --port 8000
 ```
 
 Swagger: http://localhost:8000/docs. Health: http://localhost:8000/health.
-Không cần API key để chạy CRUD session; gửi message cần key Gemini hợp lệ.
+Không cần API key để chạy CRUD session; gửi chat cần `TYPESAFE_API_KEY` cho JEV router và
+key Gemini cho câu hỏi làm rõ hoặc research. JEV chọn một trong hai nhánh: hỏi thêm khi thiếu
+thông tin quan trọng, hoặc bắt đầu research khi yêu cầu đã đủ rõ. Quyết định dùng toàn bộ lịch
+sử session để tránh hỏi lại thông tin đã có. Nếu JEV chưa cấu hình hoặc tạm lỗi, chat trả 503;
+Gemini không được dùng thay JEV để quyết định route.
+Model TypeSafe mặc định là `jev-latest` (đổi bằng `TYPESAFE_MODEL` nếu cần).
 Model mặc định là `gemini-3.8-flash`, thay bằng `GEMINI_MODEL` nếu cần.
 Gemini có thể chạy qua Vertex AI bằng `GEMINI_USE_VERTEXAI=true` cùng
 `GOOGLE_CLOUD_PROJECT` và `GOOGLE_CLOUD_LOCATION`; cấu hình này được dùng cho cả chat và Citation Auditor.
@@ -45,6 +50,9 @@ về thứ tự ưu tiên này không phải lỗi.
 Khởi động lại backend sau khi sửa `.env` để nạp lại settings.
 SQLite mặc định nằm tại `backend/ideally.db`; `DATABASE_URL` có thể thay đổi.
 Nếu đổi sang PostgreSQL, cài driver tương ứng và dùng URL SQLAlchemy phù hợp.
+Chat agent lưu phản hồi hoàn tất trong local cache tại `backend/.cache/agent-replies`
+trong 24 giờ. Có thể đổi bằng `AGENT_REPLY_CACHE_DIR` và
+`AGENT_REPLY_CACHE_TTL_SECONDS=0` để tắt cache.
 
 ## API
 
@@ -57,7 +65,11 @@ Nếu đổi sang PostgreSQL, cài driver tương ứng và dùng URL SQLAlchemy
 | DELETE | /api/v1/sessions/{id} | Xóa phiên và messages |
 | POST | /api/v1/sessions/{id}/messages | Gửi message cho Deep Agent |
 | GET | /api/v1/research/{id} | Research mới nhất, hoặc `null` nếu chưa có |
+| POST | /api/v1/research/{id}/brief | Tạo Proposal Brief và lưu Mermaid mindmap của session |
+| POST | /api/v1/research/{id}/brief/stream | AG-UI SSE stream cho Proposal Brief + activity Mermaid mindmap |
 | POST | /api/v1/research/{id}/experiment | Tạo và lưu Experiment Protocol từ reasoning map của session |
+| POST | /api/v1/defense/probes | Tạo ba câu hỏi phản biện theo đề xuất và research map |
+| POST | /api/v1/defense/evaluate | Đánh giá lập luận trả lời của người nghiên cứu |
 
 ### Chat trực tiếp
 
@@ -132,12 +144,16 @@ chất lượng research thực tế cho tới khi chạy với API key/model c�
 ## Hành vi và phạm vi
 
 - Lưu cả hai message và research trong một transaction sau khi AI thành công.
+- Cache kết quả theo câu hỏi, context hội thoại, chế độ research và model; câu hỏi lặp lại
+  trong cùng context có thể dùng lại phản hồi trong TTL. Mỗi entry là một file JSON riêng,
+  ghi qua file tạm có tên duy nhất rồi atomic replace, không dùng lock.
 - 503 nếu thiếu key; 502 nếu provider lỗi; 504 nếu quá thời gian.
 - 409 nếu phiên bị cập nhật/xóa trong lúc AI chạy; frontend tải lại trước khi thử lại.
 - Lưu lịch sử qua restart; giới hạn 40 messages gần nhất đưa vào context.
 - CORS chỉ cho Vite local mặc định. Không có auth/multi-user isolation; phù hợp local.
 - `create_all` khởi tạo schema cho bản đầu tiên; dùng migration trước khi thay đổi schema
-  trên database đã có dữ liệu. API hiện trả response sau khi agent hoàn tất, chưa streaming.
+  trên database đã có dữ liệu. Endpoint chat JSON trả sau khi hoàn tất; endpoint
+  `/chat/stream` gửi tiến độ và câu trả lời dạng token trong lúc phản hồi.
 
 Tài liệu tích hợp:
 [Deep Agents](https://docs.langchain.com/oss/python/deepagents/quickstart),
@@ -161,7 +177,8 @@ JSON body và HTTP status. Frontend có thể gọi `/api/v1/chat`,
 Kiểm tra Python qua `http://localhost:3000/api/backend/health`.
 Đổi `PYTHON_BACKEND_URL` trong `.env` của Ideally nếu Python chạy ở địa chỉ khác.
 Backend phải chạy riêng; proxy trả 502 khi không kết nối được và 504 khi quá 180 giây.
-Các API `/api/advisor/*`, search và translation vẫn được xử lý trong TypeScript.
+Defense Lab dùng hai endpoint `/api/v1/defense/*` trên FastAPI; search,
+translation và các API advisor khác vẫn được xử lý trong TypeScript.
 
 ## Chat trên giao diện
 
@@ -177,6 +194,11 @@ Session được giữ cho các lượt chat trong cùng phiên sử dụng ứn
 Lỗi API được hiển thị trên giao diện, không thay bằng câu trả lời mẫu.
 `GEMINI_FALLBACK_MODEL` mặc định là `gemini-3.1-flash-lite`; chat chuyển sang model này
 khi model chính trả 404, 429, 500 hoặc 503.
+
+Proposal Brief dùng `POST /api/v1/research/{id}/brief/stream` theo AG-UI SSE. Stream phát
+`RUN_*`, `STEP_*`, `ACTIVITY_SNAPSHOT` với `activityType=MERMAID_MINDMAP`, rồi
+`STATE_SNAPSHOT` chứa brief đã lưu. Mermaid được backend dựng từ toàn bộ chat, reasoning map,
+constraints, evidence, direction và experiment của chính session đó; model không tự gửi UI code.
 Python không có route `/api/advisor/chat` (404); `/api/v1/chat` yêu cầu POST
 (mở URL bằng trình duyệt gửi GET sẽ trả 405). Provider 404 được báo là lỗi model
 với HTTP 502, còn provider quá tải/giới hạn tốc độ trả 503.

@@ -11,6 +11,7 @@ from src.modules.session.models import ChatMessage, ChatSession
 from src.modules.session.repository import claim_version, get_session
 from src.modules.session.schemas import MessageCreate, MessageRead, MessageResponse
 
+
 async def send_message(
     db: Session,
     session_id: str | None,
@@ -24,35 +25,66 @@ async def send_message(
         raise HTTPException(422, "Message must not be blank")
     version, count = 0, 0
     history = []
+    session_history = []
     session = None
     if session_id is not None:
         session = db.get(ChatSession, session_id)
         if session is not None:
             version, count = session.version, len(session.messages)
-            history = [
+            session_history = [
                 {"role": m.role, "content": m.content}
-                for m in session.messages[-agent.settings.max_history_messages :]
+                for m in session.messages
             ]
+            history = session_history[-agent.settings.max_history_messages :]
         db.rollback()  # Release the read transaction before waiting for the provider.
-    log_event("chat.message.received", message="Đã nhận tin nhắn", session_id=session_id, research=payload.research)
+    log_event(
+        "chat.message.received",
+        message="Đã nhận tin nhắn",
+        session_id=session_id,
+        research=payload.research,
+    )
     history.append({"role": "user", "content": content})
+    session_history.append({"role": "user", "content": content})
     try:
         if progress_callback:
             result = await agent.reply(
-                history, payload.research, progress_callback, answer_token_callback
+                history,
+                payload.research,
+                progress_callback,
+                answer_token_callback,
+                session_history=session_history,
             )
         else:
-            result = await agent.reply(history, payload.research)
+            result = await agent.reply(
+                history, payload.research, session_history=session_history
+            )
     except AgentUnavailableError as error:
-        log_event("agent.run.failed", level=logging.ERROR, message="Agent không khả dụng", **error_fields(error))
+        log_event(
+            "agent.run.failed",
+            level=logging.ERROR,
+            message="Agent không khả dụng",
+            **error_fields(error),
+        )
         raise HTTPException(503, str(error)) from error
     except TimeoutError as error:
-        log_event("agent.run.failed", level=logging.ERROR, message="Agent xử lý quá thời hạn", **error_fields(error))
+        log_event(
+            "agent.run.failed",
+            level=logging.ERROR,
+            message="Agent xử lý quá thời hạn",
+            **error_fields(error),
+        )
         raise HTTPException(504, "AI request timed out; retry your message") from error
     except Exception as error:
         # Do not log provider exceptions containing prompts, keys, or response bodies.
         code = getattr(error, "code", None) or getattr(error.__cause__, "code", None)
-        log_event("dependency.request.failed", level=logging.ERROR, message="Gọi AI thất bại", dependency="llm", error_type=type(error).__name__, provider_status=code)
+        log_event(
+            "dependency.request.failed",
+            level=logging.ERROR,
+            message="Gọi AI thất bại",
+            dependency="llm",
+            error_type=type(error).__name__,
+            provider_status=code,
+        )
         if code == 404:
             raise HTTPException(
                 502,
@@ -96,12 +128,19 @@ async def send_message(
         previous_research = session.research or {}
         if not updated_research.get("reasoning_map"):
             updated_research["reasoning_map"] = previous_research.get("reasoning_map")
+        if not updated_research.get("ui"):
+            updated_research["ui"] = previous_research.get("ui")
         if updated_research.get("reasoning_map") == previous_research.get("reasoning_map"):
             for key in (
-                "experiment_design", "experiment_direction_id", "experiment_context_hash"
+                "experiment_design",
+                "experiment_direction_id",
+                "experiment_context_hash",
             ):
                 if previous_research.get(key) is not None:
                     updated_research[key] = previous_research[key]
+        for key in ("proposal_brief", "proposal_brief_context_hash", "defense_lab"):
+            if previous_research.get(key) is not None:
+                updated_research[key] = previous_research[key]
         session.research = updated_research
     if progress_callback:
         await progress_callback("saving_response")

@@ -14,6 +14,7 @@ const __dirname = path.dirname(__filename);
 
 const app = express();
 const PORT = Number(process.env.PORT || 3000);
+const httpServer = http.createServer(app);
 
 app.use(express.json({ limit: "10mb" }));
 
@@ -41,7 +42,7 @@ app.use(["/api/v1", "/api/backend/health"], (req, res) => {
 		response.on("error", () => res.destroy());
 		response.pipe(res);
 	});
-	upstream.setTimeout(225_000, () => {
+	upstream.setTimeout(660_000, () => {
 		if (!res.headersSent) res.status(504).json({ error: "Python backend request timed out" });
 		upstream.destroy();
 	});
@@ -558,147 +559,6 @@ Ensure all JSON is valid and strictly formatted with no markdown code blocks out
 	} catch (err: any) {
 		const fallbackBrief = generateFallbackBrief(intake);
 		res.json({ brief: fallbackBrief, source: "curated_advisor_engine" });
-	}
-});
-
-// Socratic Defense Probes Generation & Evaluation
-app.post("/api/advisor/socratic-defense", async (req, res) => {
-	const { brief, userProbeAnswer, probeId } = req.body;
-	if (!brief) {
-		res.status(400).json({ error: "Missing brief." });
-		return;
-	}
-
-	// If user is submitting an answer to an existing probe
-	if (userProbeAnswer && probeId) {
-		if (!ai) {
-			res.json({
-				evaluation: {
-					strengthScore: 8,
-					strengths: ["Directly acknowledged the primary confounding variable.", "Proposed a quantitative metric to verify the invariant condition."],
-					vulnerabilities: ["Could be more specific regarding sample size bounds under extreme shift."],
-					advisorTip: "In your committee presentation, bring up the ablation control before Reviewer 2 asks for it.",
-				},
-			});
-			return;
-		}
-
-		try {
-			const probePrompt = `
-You are the Advisory Committee evaluating a candidate defending their research brief titled "${brief.title}".
-The candidate was asked a defense probe question (Probe ID: ${probeId}).
-The candidate responded with:
-"${userProbeAnswer}"
-
-Analyze the defense response. Return JSON with:
-{
-  "strengthScore": <1-10>,
-  "strengths": ["<strength 1>", "<strength 2>"],
-  "vulnerabilities": ["<vulnerability 1>", "<vulnerability 2>"],
-  "advisorTip": "<Strategic advisor advice on how to reinforce this point during a real defense or paper revision>"
-}
-`;
-			const geminiRes = await callGeminiSafe({
-				contents: probePrompt,
-				config: { responseMimeType: "application/json" },
-				primaryModel: "gemini-3.8-flash",
-			});
-			if (geminiRes) {
-				const parsed = JSON.parse(geminiRes.text.trim() || "{}");
-				if (parsed.strengthScore) {
-					res.json({ evaluation: parsed });
-					return;
-				}
-			}
-
-			res.json({
-				evaluation: {
-					strengthScore: 8,
-					strengths: ["Addressed the operational mechanism cleanly."],
-					vulnerabilities: ["Needs statistical confidence interval citation."],
-					advisorTip: "Reference the baseline control explicitly.",
-				},
-			});
-			return;
-		} catch {
-			res.json({
-				evaluation: {
-					strengthScore: 8,
-					strengths: ["Addressed the operational mechanism cleanly."],
-					vulnerabilities: ["Needs statistical confidence interval citation."],
-					advisorTip: "Reference the baseline control explicitly.",
-				},
-			});
-			return;
-		}
-	}
-
-	// Generate 3 novel defense probes for the brief
-	try {
-		const isPatentTopic = /patent|prior art|claim|inventive|intellectual property|35 u\.?s\.?c/i.test(`${brief.title} ${brief.intake?.problemOrObservation || ""} ${brief.experimentDesign?.falsifiableHypothesis || ""}`);
-
-		const probeGenPrompt = `
-You are an Academic & Patent Defense Advisory Committee grilling a researcher/inventor on their proposal:
-Title: "${brief.title}"
-Selected Direction: "${brief.candidateDirections?.find((d: any) => d.id === brief.selectedDirectionId)?.title || "Primary Direction"}"
-Falsifiable Hypothesis / Claim: "${brief.experimentDesign?.falsifiableHypothesis}"
-Primary Research Question: "${brief.experimentDesign?.primaryResearchQuestion}"
-
-Generate 3 tough, intellectually rigorous defense probes representing distinct adversarial perspectives:
-1. Methodology Committee Chair (probing causal validity, confounding factors, or sample bias)
-2. ${isPatentTopic ? "Patent Examiner (USPTO/EPO probing 35 U.S.C. § 102 Novelty & § 103 Non-Obviousness over prior art combinations)" : "Reviewer #2 Empirical Skeptic (challenging baselines, negative result significance, or edge cases)"}
-3. Domain / Industry Practitioner (challenging real-world adoption, latency/cost constraints, or operational friction)
-
-Return JSON format:
-{
-  "probes": [
-    {
-      "id": "probe-1",
-      "persona": "...",
-      "probingTopic": "...",
-      "question": "...",
-      "exampleAnswers": ["...", "..."]
-    }
-  ]
-}
-`;
-		const geminiRes = await callGeminiSafe({
-			contents: probeGenPrompt,
-			config: { responseMimeType: "application/json" },
-			primaryModel: "gemini-3.8-flash",
-		});
-
-		if (geminiRes) {
-			const parsed = JSON.parse(geminiRes.text.trim() || "{}");
-			if (parsed.probes && Array.isArray(parsed.probes)) {
-				res.json({ probes: parsed.probes });
-				return;
-			}
-		}
-
-		res.json({
-			probes: [
-				{
-					id: `probe-${Date.now()}-1`,
-					persona: "Reviewer #2 (Empirical Skeptic)",
-					probingTopic: "Confounding & Baseline Rigor",
-					question: "How do you guarantee that your experimental metric improvement is not an artifact of selective data filtering?",
-					exampleAnswers: ["All data filtering adheres strictly to an a priori registration protocol before test evaluations."],
-				},
-			],
-		});
-	} catch {
-		res.json({
-			probes: [
-				{
-					id: `probe-${Date.now()}-1`,
-					persona: "Reviewer #2 (Empirical Skeptic)",
-					probingTopic: "Confounding & Baseline Rigor",
-					question: "How do you guarantee that your experimental metric improvement is not an artifact of selective data filtering?",
-					exampleAnswers: ["All data filtering adheres strictly to an a priori registration protocol before test evaluations."],
-				},
-			],
-		});
 	}
 });
 
@@ -1714,14 +1574,17 @@ ${JSON.stringify(payloadToTranslate, null, 2)}`;
 });
 
 // Vite middleware in dev or static files in production
+let closeVite: (() => Promise<void>) | undefined;
 if (process.env.NODE_ENV !== "production") {
 	const { createServer: createViteServer } = await import("vite");
 	const vite = await createViteServer({
 		server: {
-			middlewareMode: true,
+			middlewareMode: { server: httpServer },
+			ws: { server: httpServer },
 		},
 		appType: "spa",
 	});
+	closeVite = () => vite.close();
 	app.use(vite.middlewares);
 } else {
 	app.use(express.static(path.join(__dirname, "dist")));
@@ -1730,6 +1593,15 @@ if (process.env.NODE_ENV !== "production") {
 	});
 }
 
-app.listen(PORT, "0.0.0.0", () => {
+httpServer.listen(PORT, "0.0.0.0", () => {
 	console.log(`Ideally AI Research Advisor server running at http://0.0.0.0:${PORT}`);
 });
+
+for (const signal of ["SIGINT", "SIGTERM"] as const) {
+	process.once(signal, () => {
+		void (async () => {
+			await closeVite?.();
+			await new Promise<void>((resolve) => httpServer.close(() => resolve()));
+		})();
+	});
+}

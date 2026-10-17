@@ -218,7 +218,13 @@ def test_real_advisor_search_crawl_assessment_and_comparison(monkeypatch):
             ]
         }
 
+    async def research_route(self, history):
+        from src.core.agent import RouteDecision
+
+        return RouteDecision(route="research")
+
     monkeypatch.setattr(module, "ChatGoogleGenerativeAI", lambda **kwargs: model)
+    monkeypatch.setattr(module.AgentService, "_route", research_route)
     monkeypatch.setattr(module, "search_external_knowledge", search)
     monkeypatch.setattr(module.CrawlService, "crawl", crawl)
     result = asyncio.run(
@@ -227,6 +233,7 @@ def test_real_advisor_search_crawl_assessment_and_comparison(monkeypatch):
                 _env_file=None,
                 GOOGLE_API_KEY="test",
                 tavily_api_key="test",
+                agent_reply_cache_ttl_seconds=0,
             )
         ).reply([{"role": "user", "content": "Support teams classify tickets. It is slow."}], True)
     )

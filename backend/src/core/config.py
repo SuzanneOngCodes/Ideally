@@ -15,6 +15,8 @@ class Settings(BaseSettings):
     google_api_key: SecretStr = Field(
         default=SecretStr(""), validation_alias=AliasChoices("GOOGLE_API_KEY", "GEMINI_API_KEY")
     )
+    typesafe_api_key: SecretStr = SecretStr("")
+    typesafe_model: str = "jev-latest"
     tavily_api_key: SecretStr = SecretStr("")
     crawl4ai_api_key: SecretStr = SecretStr("")
     crawl4ai_base_url: str = "https://api.crawl4ai.com"
@@ -35,6 +37,8 @@ class Settings(BaseSettings):
     agent_timeout_seconds: int = Field(default=120, ge=1, le=600)
     cors_origins: list[str] = ["http://localhost:5173", "http://127.0.0.1:5173"]
     max_history_messages: int = Field(default=40, ge=2, le=200)
+    agent_reply_cache_dir: Path = BACKEND_ROOT / ".cache" / "agent-replies"
+    agent_reply_cache_ttl_seconds: int = Field(default=86_400, ge=0)
 
 
 @lru_cache

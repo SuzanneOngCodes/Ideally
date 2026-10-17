@@ -1,13 +1,17 @@
-import pytest
-import json
+import asyncio
 from unittest.mock import AsyncMock, MagicMock, patch
+
+import pytest
 from fastapi import FastAPI
-from httpx import AsyncClient, ASGITransport
+from fastapi.testclient import TestClient
 from pydantic import SecretStr
 
 from src.core.config import Settings
-from src.modules.auditor.service import CitationAuditService, AuditReport
+from src.main import create_app
 from src.modules.auditor.router import router as auditor_router
+from src.modules.auditor.service import AuditReport, CitationAuditService
+from src.modules.session.models import ChatMessage, ChatSession
+from src.share.database import Base, create_database
 
 # --- 1. Test Layer Configuration Fixtures Setup ---
 
@@ -22,10 +26,13 @@ def mock_settings():
     return settings
 
 @pytest.fixture
-def test_app(mock_settings):
+def test_app(mock_settings, tmp_path):
     """Assembles an ephemeral isolated application context tracking the state instance wrappers."""
     app = FastAPI()
     app.state.auditor = CitationAuditService(mock_settings)
+    engine, db_factory = create_database(f"sqlite:///{tmp_path / 'auditor.db'}")
+    Base.metadata.create_all(engine)
+    app.state.db_factory = db_factory
     app.include_router(auditor_router, prefix="/api/v1")
     return app
 
@@ -70,9 +77,8 @@ MOCK_LLM_RESPONSE = AuditReport(
 
 # --- 3. Async Integration Assert Check Runs ---
 
-@pytest.mark.asyncio
 @patch("langchain_google_genai.chat_models.ChatGoogleGenerativeAI") # <-- Direct module target override patch
-async def test_audit_citations_endpoint_llm_success(mock_chat_class, test_app):
+def test_audit_citations_endpoint_llm_success(mock_chat_class, test_app):
     """
     Verifies successful tracking integration sequences when the Gemini API executes natively.
     """
@@ -88,8 +94,9 @@ async def test_audit_citations_endpoint_llm_success(mock_chat_class, test_app):
         "domain": "Applied Engineering"
     }
 
-    async with AsyncClient(transport=ASGITransport(app=test_app), base_url="http://test") as client:
-        response = await client.post("/api/v1/advisor/audit-citations", json=request_data)
+    test_app.state.auditor._verify_single_citation = AsyncMock(side_effect=lambda citation: citation)
+    with TestClient(test_app) as client:
+        response = client.post("/api/v1/advisor/audit-citations", json=request_data)
 
     assert response.status_code == 200
     json_data = response.json()
@@ -97,9 +104,8 @@ async def test_audit_citations_endpoint_llm_success(mock_chat_class, test_app):
     # assert json_data["report"]["overallIntegrityScore"] == 95
 
 
-@pytest.mark.asyncio
 @patch("langchain_google_genai.chat_models.ChatGoogleGenerativeAI") # <-- Direct module target override patch
-async def test_audit_citations_endpoint_fallback_on_llm_failure(mock_chat_class, test_app):
+def test_audit_citations_endpoint_fallback_on_llm_failure(mock_chat_class, test_app):
     """
     Confirms that if the external Gemini API architecture collapses, 
     the engine gracefully rolls over to the deterministic lexical auditor.
@@ -115,8 +121,9 @@ async def test_audit_citations_endpoint_fallback_on_llm_failure(mock_chat_class,
         "text": "Let us delve into this incredibly multifaceted tapestry of game-changing neural systems (Smith et al., 2024)."
     }
 
-    async with AsyncClient(transport=ASGITransport(app=test_app), base_url="http://test") as client:
-        response = await client.post("/api/v1/advisor/audit-citations", json=request_data)
+    test_app.state.auditor._verify_single_citation = AsyncMock(side_effect=lambda citation: citation)
+    with TestClient(test_app) as client:
+        response = client.post("/api/v1/advisor/audit-citations", json=request_data)
 
     assert response.status_code == 200
     json_data = response.json()
@@ -128,15 +135,117 @@ async def test_audit_citations_endpoint_fallback_on_llm_failure(mock_chat_class,
     # assert report["citations"][0]["citationText"] == "(Smith et al., 2024)"
 
 
-@pytest.mark.asyncio
-async def test_audit_citations_endpoint_bad_request_missing_text(test_app):
+def test_audit_citations_endpoint_bad_request_missing_text(test_app):
     """Verifies that an empty or poorly formed string data block returns a standard 400 Bad Request error code."""
     request_data = {
         "text": "   "  # Empty text block matching error trigger bounds
     }
 
-    async with AsyncClient(transport=ASGITransport(app=test_app), base_url="http://test") as client:
-        response = await client.post("/api/v1/advisor/audit-citations", json=request_data)
+    with TestClient(test_app) as client:
+        response = client.post("/api/v1/advisor/audit-citations", json=request_data)
 
     assert response.status_code == 400
     assert "Please provide text or brief to audit" in response.json()["detail"]
+
+
+def test_auditor_uses_and_persists_results_in_active_session(tmp_path):
+    settings = Settings(_env_file=None, database_url=f"sqlite:///{tmp_path / 'auditor-session.db'}")
+    app = create_app(settings)
+
+    class FakeSessionAuditor:
+        received_text = None
+        received_brief = None
+
+        async def audit_text(self, text, brief, domain):
+            self.received_text = text
+            self.received_brief = brief
+            self.received_domain = domain
+            return {"report": {"id": "audit-session", "targetDomain": "Software Systems"}, "engine": "test"}
+
+    fake_auditor = FakeSessionAuditor()
+    app.state.auditor = fake_auditor
+
+    with TestClient(app) as client:
+        created = client.post("/api/v1/sessions", json={"title": "Software system design"})
+        assert created.status_code == 201
+        session_id = created.json()["id"]
+        with app.state.db_factory() as db:
+            session = db.get(ChatSession, session_id)
+            session.research = {
+                "title": "Software System Design",
+                "summary": "A study of distributed architecture tradeoffs.",
+                "reasoning_map": {"problem": {"title": "Reliability in distributed systems"}},
+            }
+            db.add(
+                ChatMessage(
+                    session_id=session_id,
+                    sequence=0,
+                    role="user",
+                    content="Compare event-driven design with request-response architecture.",
+                )
+            )
+            db.commit()
+
+        audited = client.post(
+            "/api/v1/advisor/audit-citations",
+            json={
+                "session_id": session_id,
+                "source": "brief",
+                "text": "Stale LLM demo brief should not be audited.",
+                "brief": {
+                    "title": "Stale LLM demo brief",
+                    "problemValidation": {"coreProblemStatement": "stale"},
+                    "knowledgeLandscape": {"criticalKnowledgeGap": "stale"},
+                    "experimentDesign": {"falsifiableHypothesis": "stale"},
+                },
+            },
+        )
+        assert audited.status_code == 200
+        assert "Software System Design" in fake_auditor.received_text
+        assert "Compare event-driven design" in fake_auditor.received_text
+        assert "Stale LLM demo" not in fake_auditor.received_text
+        assert fake_auditor.received_brief is None
+        assert fake_auditor.received_domain == "Software System Design"
+        assert audited.json()["session_id"] == session_id
+
+        history = client.get(f"/api/v1/sessions/{session_id}/audits")
+        assert history.status_code == 200
+        assert history.json()["audits"] == [{"id": "audit-session", "targetDomain": "Software Systems"}]
+
+
+def test_auditor_does_not_verify_a_citation_from_an_unrelated_search_result(mock_settings):
+    service = CitationAuditService(mock_settings)
+    service._sync_search_arxiv = lambda _query: [
+        {"title": "An Unrelated Paper About Other Systems", "url": "https://arxiv.org/abs/1"}
+    ]
+    service._sync_search_tavily = lambda _query: []
+    citation = {
+        "paperTitle": "A Carefully Measured Study of Distributed System Reliability",
+        "citationText": "(Example et al., 2024)",
+        "status": "verified",
+        "confidenceScore": 95,
+    }
+
+    result = asyncio.run(service._verify_single_citation(citation))
+
+    assert result["status"] == "unverifiable"
+    assert result["groundedSourceUrl"] == ""
+    assert "does not prove" in result["verdictReason"]
+
+
+def test_auditor_verifies_close_title_match(mock_settings):
+    service = CitationAuditService(mock_settings)
+    service._sync_search_arxiv = lambda _query: [
+        {
+            "title": "A Carefully Measured Study of Distributed System Reliability",
+            "url": "https://arxiv.org/abs/1234.5678",
+        }
+    ]
+    service._sync_search_tavily = lambda _query: []
+    citation = {"paperTitle": "A Carefully Measured Study of Distributed System Reliability"}
+
+    result = asyncio.run(service._verify_single_citation(citation))
+
+    assert result["status"] == "verified"
+    assert result["confidenceScore"] >= 90
+    assert result["groundedSourceUrl"] == "https://arxiv.org/abs/1234.5678"

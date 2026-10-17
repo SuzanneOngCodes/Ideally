@@ -6,16 +6,22 @@ import { useLanguage } from "../context/LanguageContext";
 import { copyToClipboard } from "../utils/clipboard";
 import { getBriefLabels } from "../i18n/translations";
 import { LanguageCode } from "../types/i18n";
+import { MermaidMindmap } from "./MermaidMindmap";
+import type { MermaidMindmapActivity } from "../utils/liveReasoningMap";
 
 interface ResearchBriefViewProps {
 	brief: ResearchBrief;
+	isLoading?: boolean;
+	error?: string | null;
+	onRetry?: () => void;
 	onOpenDefense: () => void;
 	onOpenAuditor: () => void;
 	onNavigateStage?: (stage: "problem" | "knowledge" | "tradeoffs" | "experiment") => void;
 	onUpdateBrief?: (brief: ResearchBrief) => void;
+	proposalActivity?: MermaidMindmapActivity | null;
 }
 
-export const ResearchBriefView: FC<ResearchBriefViewProps> = ({ brief, onOpenDefense, onOpenAuditor, onNavigateStage, onUpdateBrief }) => {
+export const ResearchBriefView: FC<ResearchBriefViewProps> = ({ brief, isLoading = false, error, onRetry, onOpenDefense, onOpenAuditor, onNavigateStage, onUpdateBrief, proposalActivity }) => {
 	const { currentLanguage, activeLanguageInfo, languages, setLanguage, translateBriefContent, isTranslating, translationProvider } = useLanguage();
 	const [copiedBibtex, setCopiedBibtex] = useState(false);
 	const [copiedSummary, setCopiedSummary] = useState(false);
@@ -110,6 +116,13 @@ Timeline: ${displayBrief.feasibilityAssessment.runwayWeeks} weeks`;
 			setTimeout(() => setCopiedSummary(false), 2000);
 		}
 	};
+
+	if (isLoading) {
+		return <div className="max-w-4xl mx-auto px-6 py-16 text-center" role="status"><div className="mx-auto mb-4 h-8 w-8 animate-spin rounded-full border-2 border-slate-200 border-t-blue-600" /><h1 className="font-serif-scholarly text-2xl font-semibold text-slate-900">Synthesizing your proposal</h1><p className="mt-2 text-sm text-slate-600">Reading the complete session chat and reasoning map…</p>{proposalActivity && <div className="mx-auto mt-8 max-w-3xl text-left"><div className="mb-3 flex items-center justify-between gap-3"><div><p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-slate-500">AG-UI activity</p><h2 className="mt-1 text-sm font-semibold text-slate-900">{proposalActivity.title}</h2></div><span className="rounded-full bg-blue-50 px-2.5 py-1 text-[10px] font-semibold text-blue-700">{proposalActivity.status === "ready" ? "Ready" : "Building"}</span></div><MermaidMindmap diagram={proposalActivity} /></div>}</div>;
+	}
+	if (error) {
+		return <div className="max-w-3xl mx-auto px-6 py-24 text-center"><h1 className="font-serif-scholarly text-2xl font-semibold text-slate-900">Proposal Brief is not ready</h1><p className="mx-auto mt-3 max-w-xl text-sm text-slate-600">{error}</p><div className="mt-6 flex justify-center gap-3"><button onClick={onRetry} className="rounded-lg bg-slate-900 px-4 py-2 text-sm font-medium text-white">Retry</button><button onClick={() => onNavigateStage?.("problem")} className="rounded-lg border border-slate-300 px-4 py-2 text-sm font-medium text-slate-700">Open Research Map</button></div></div>;
+	}
 
 	return (
 		<div className='max-w-4xl mx-auto py-8 px-4 sm:px-6 space-y-8'>
@@ -279,6 +292,20 @@ Timeline: ${displayBrief.feasibilityAssessment.runwayWeeks} weeks`;
 
 					<p className='text-base text-slate-700 leading-relaxed font-serif-scholarly italic'>"{displayBrief.problemValidation.coreProblemStatement}"</p>
 				</header>
+
+				{displayBrief.researchDiagram?.type === "reasoning-map-diagram" && (
+					<section className="space-y-4 rounded-xl border border-slate-200 bg-slate-50 p-5" aria-label="Reasoning map diagram">
+						<div><p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-slate-500">Session reasoning map</p><h2 className="mt-1 font-serif-scholarly text-lg font-semibold text-slate-900">{displayBrief.researchDiagram.title}</h2></div>
+						{displayBrief.researchDiagram.format === "mermaid-mindmap" && displayBrief.researchDiagram.mermaid ? <MermaidMindmap diagram={displayBrief.researchDiagram} /> : <div className="grid gap-3 md:grid-cols-5">
+							{displayBrief.researchDiagram.nodes.map((node, index) => <div key={node.id} className="relative rounded-lg border border-slate-200 bg-white p-3">
+								<div className="mb-2 flex items-center justify-between gap-2"><span className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">{node.label}</span><span className="text-[10px] text-slate-400">{node.source_count} sources</span></div>
+								<h3 className="text-sm font-semibold text-slate-900">{node.title}</h3><p className="mt-1 line-clamp-4 text-xs leading-relaxed text-slate-600">{node.summary}</p>
+								<span className="mt-3 inline-flex rounded-full bg-slate-100 px-2 py-1 text-[10px] text-slate-600">{node.status}</span>
+								{index < displayBrief.researchDiagram!.nodes.length - 1 && <span className="absolute -right-3 top-1/2 z-10 hidden -translate-y-1/2 text-slate-400 md:block" aria-hidden="true">→</span>}
+							</div>)}
+						</div>}
+					</section>
+				)}
 
 				{/* Section 1: Problem Space & Societal Value */}
 				<section className='space-y-3'>

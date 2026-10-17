@@ -56,12 +56,21 @@ def test_chat_loads_skills_searches_and_crawls_after_workflow_correction(monkeyp
             ]
         }
 
+    async def research_route(self, history):
+        return module.RouteDecision(route="research")
+
     monkeypatch.setattr(module, "ChatGoogleGenerativeAI", lambda **kwargs: model)
+    monkeypatch.setattr(module.AgentService, "_route", research_route)
     monkeypatch.setattr(module, "search_external_knowledge", search)
     monkeypatch.setattr(module.CrawlService, "crawl", crawl)
     caplog.set_level(logging.INFO)
     service = module.AgentService(
-        Settings(_env_file=None, GOOGLE_API_KEY="test", tavily_api_key="test")
+        Settings(
+            _env_file=None,
+            GOOGLE_API_KEY="test",
+            tavily_api_key="test",
+            agent_reply_cache_ttl_seconds=0,
+        )
     )
     reply = asyncio.run(service.reply([{"role": "user", "content": "Investigate latency"}], False))
     assert reply.research.sources[0].excerpt == "Actual source methods and limitations"

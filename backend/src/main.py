@@ -16,6 +16,8 @@ from src.core.logger import configure_logging, error_fields, log_context, log_ev
 from src.modules.auditor.router import router as auditor_router
 from src.modules.auditor.service import CitationAuditService
 from src.modules.chat.router import router as chat_router
+from src.modules.defense.router import router as defense_router
+from src.modules.defense.service import DefenseLabService
 from src.modules.evidence.router import router as evidence_router
 from src.modules.evidence.service import EvidenceSearchService
 from src.modules.research.router import router as research_router
@@ -47,10 +49,17 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     @app.middleware("http")
     async def request_logging(request: Request, call_next):
         supplied = request.headers.get("X-Trace-ID", "")
-        trace_id = supplied if re.fullmatch(r"[A-Za-z0-9._-]{1,128}", supplied) else f"tr_{uuid4().hex}"
+        trace_id = (
+            supplied if re.fullmatch(r"[A-Za-z0-9._-]{1,128}", supplied) else f"tr_{uuid4().hex}"
+        )
         token = log_context.set({"trace_id": trace_id})
         started = perf_counter()
-        log_event("http.request.started", message="Bắt đầu xử lý request", method=request.method, path=request.url.path)
+        log_event(
+            "http.request.started",
+            message="Bắt đầu xử lý request",
+            method=request.method,
+            path=request.url.path,
+        )
         try:
             response = await call_next(request)
             response.headers["X-Trace-ID"] = trace_id
@@ -81,6 +90,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.state.agent = AgentService(settings)
     app.state.evidence = EvidenceSearchService(settings)
     app.state.auditor = CitationAuditService(settings)
+    app.state.defense = DefenseLabService(settings)
     app.add_middleware(
         CORSMiddleware,
         allow_origins=settings.cors_origins,
@@ -90,6 +100,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     )
     app.include_router(chat_router, prefix="/api/v1")
     app.include_router(auditor_router, prefix="/api/v1")
+    app.include_router(defense_router, prefix="/api/v1")
     app.include_router(session_router, prefix="/api/v1")
     app.include_router(research_router, prefix="/api/v1")
     app.include_router(evidence_router, prefix="/api/v1")

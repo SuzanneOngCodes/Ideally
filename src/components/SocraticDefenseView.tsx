@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { ShieldCheck, MessageSquare, Send, Award, HelpCircle, Loader2, RefreshCw } from 'lucide-react';
 import { ResearchBrief, SocraticDefenseProbe } from '../types/research';
 import { MarkdownContent } from './MarkdownContent';
@@ -17,24 +17,38 @@ export const SocraticDefenseView: React.FC<SocraticDefenseViewProps> = ({
   onSubmitDefense,
 }) => {
   const [selectedProbeId, setSelectedProbeId] = useState<string>(probes[0]?.id || '');
-  const [userAnswer, setUserAnswer] = useState<string>('');
+  const [userAnswer, setUserAnswer] = useState<string>(probes[0]?.userDefenseAnswer || '');
   const [evaluating, setEvaluating] = useState<boolean>(false);
   const [refreshing, setRefreshing] = useState<boolean>(false);
   const [evaluations, setEvaluations] = useState<Record<string, any>>({});
+  const [evaluationError, setEvaluationError] = useState<string | null>(null);
 
   const activeProbe = probes.find((p) => p.id === selectedProbeId) || probes[0];
-  const activeEval = activeProbe ? evaluations[activeProbe.id] : null;
+  const activeEval = activeProbe ? evaluations[activeProbe.id] || activeProbe.feedback : null;
+
+  useEffect(() => {
+    if (!probes.length) return;
+    setSelectedProbeId((current) => probes.some((probe) => probe.id === current) ? current : probes[0].id);
+  }, [probes]);
+
+  useEffect(() => {
+    const probe = probes.find((item) => item.id === selectedProbeId) || probes[0];
+    setUserAnswer(probe?.userDefenseAnswer || '');
+  }, [probes, selectedProbeId]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!userAnswer.trim() || !activeProbe) return;
 
     setEvaluating(true);
+    setEvaluationError(null);
     try {
       const res = await onSubmitDefense(activeProbe.id, userAnswer);
       if (res?.evaluation) {
         setEvaluations((prev) => ({ ...prev, [activeProbe.id]: res.evaluation }));
       }
+    } catch (error) {
+      setEvaluationError(error instanceof Error ? error.message : 'Defense evaluation failed. Please retry.');
     } finally {
       setEvaluating(false);
     }
@@ -55,8 +69,17 @@ export const SocraticDefenseView: React.FC<SocraticDefenseViewProps> = ({
 
   if (!activeProbe) {
     return (
-      <div className="max-w-4xl mx-auto py-12 px-4 text-center">
-        <p className="text-slate-600">No defense probes available yet.</p>
+      <div className="max-w-4xl mx-auto py-12 px-4 text-center space-y-3">
+        <p className="text-slate-600">No committee questions are ready yet.</p>
+        <button
+          type="button"
+          onClick={handleRefresh}
+          disabled={refreshing}
+          className="inline-flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-medium text-slate-700 disabled:opacity-50"
+        >
+          <RefreshCw className={`size-3.5 ${refreshing ? 'animate-spin' : ''}`} />
+          Generate committee questions
+        </button>
       </div>
     );
   }
@@ -93,14 +116,14 @@ export const SocraticDefenseView: React.FC<SocraticDefenseViewProps> = ({
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
         {probes.map((probe, idx) => {
           const isSelected = probe.id === activeProbe.id;
-          const hasEval = !!evaluations[probe.id];
+          const hasEval = !!evaluations[probe.id] || !!probe.feedback;
 
           return (
             <button
               key={probe.id}
               onClick={() => {
                 setSelectedProbeId(probe.id);
-                setUserAnswer('');
+                setUserAnswer(probe.userDefenseAnswer || '');
               }}
               className={`p-3.5 rounded-lg border text-left transition-all ${
                 isSelected
@@ -171,12 +194,21 @@ export const SocraticDefenseView: React.FC<SocraticDefenseViewProps> = ({
               id="defense-ans"
               rows={3}
               value={userAnswer}
-              onChange={(e) => setUserAnswer(e.target.value)}
+              onChange={(e) => {
+                setUserAnswer(e.target.value);
+                setEvaluationError(null);
+              }}
               placeholder="State your technical justification, citing variables, baselines, or statistical bounds..."
               className="w-full px-3.5 py-2.5 text-sm rounded-lg border border-slate-300 bg-white focus:outline-none focus:ring-2 focus:ring-slate-900 placeholder:text-slate-400"
               required
             />
           </div>
+
+          {evaluationError && (
+            <p role="alert" className="rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-xs text-rose-700">
+              {evaluationError}
+            </p>
+          )}
 
           <div className="flex items-center justify-between">
             <span className="text-xs text-slate-400">

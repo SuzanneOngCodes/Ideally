@@ -7,8 +7,8 @@ from fastapi.responses import StreamingResponse
 
 from src.core.dependencies import Agent
 from src.modules.chat.schemas import ChatRequest, ChatResponse
-from src.modules.session.schemas import MessageCreate
 from src.modules.session.repository import get_session
+from src.modules.session.schemas import MessageCreate
 from src.modules.session.service import send_message
 from src.share.database import Database
 

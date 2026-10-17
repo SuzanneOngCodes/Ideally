@@ -1,5 +1,8 @@
-from typing import List, Optional, Literal
+from typing import List, Literal, Optional
+from uuid import UUID
+
 from pydantic import BaseModel, Field
+
 
 class Factor(BaseModel):
     # 💡 THE FIX: Forces Gemini to ONLY use these 3 exact names requested in your prompt layout
@@ -91,6 +94,10 @@ class BriefInputSchema(BaseModel):
     intake: Optional[IntakeSchema] = None
 
 class AuditRequestPayload(BaseModel):
-    text: Optional[str] = Field(None, description="Raw block string input to audit directly")
+    text: Optional[str] = Field(
+        None, max_length=50000, description="Raw block string input to audit directly"
+    )
     brief: Optional[BriefInputSchema] = Field(None, description="Alternative composite object layout parameter")
     domain: Optional[str] = Field(None, description="Discipline area overrides configuration option")
+    session_id: Optional[UUID] = Field(None, description="Research session whose context and audit history should be used")
+    source: Literal["brief", "custom"] = Field("custom", description="Audit active session research or supplied custom text")

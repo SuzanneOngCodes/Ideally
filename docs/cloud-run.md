@@ -25,8 +25,9 @@ Tạo service account nếu chưa có:
 gcloud iam service-accounts create ideally-runtime --display-name="Ideally Cloud Run"
 ```
 
-Tạo hai secret `ideally-google-api-key` và `ideally-crawl4ai-api-key` trong
-Secret Manager bằng Google Cloud Console, thêm phiên bản chứa key tương ứng.
+Tạo các secret `ideally-google-api-key`, `ideally-crawl4ai-api-key` và
+`ideally-typesafe-api-key` trong Secret Manager bằng Google Cloud Console,
+thêm phiên bản chứa key tương ứng. JEV router dùng `ideally-typesafe-api-key`.
 `ideally-tavily-api-key` là tùy chọn để tìm kiếm web dự phòng.
 Không đưa `.env` hay API key vào image. `.dockerignore` và `.gcloudignore`
 đã loại bỏ các file này khỏi build/upload.
@@ -36,6 +37,7 @@ Cấp quyền đọc từng secret cho service account:
 ```bash
 gcloud secrets add-iam-policy-binding ideally-google-api-key --member="serviceAccount:${IDEALLY_RUNTIME_SA}" --role=roles/secretmanager.secretAccessor
 gcloud secrets add-iam-policy-binding ideally-crawl4ai-api-key --member="serviceAccount:${IDEALLY_RUNTIME_SA}" --role=roles/secretmanager.secretAccessor
+gcloud secrets add-iam-policy-binding ideally-typesafe-api-key --member="serviceAccount:${IDEALLY_RUNTIME_SA}" --role=roles/secretmanager.secretAccessor
 ```
 
 ## Deploy
@@ -50,7 +52,7 @@ gcloud run deploy "$IDEALLY_SERVICE" \
   --cpu 1 \
   --concurrency 8 \
   --timeout 240 \
-  --set-secrets GOOGLE_API_KEY=ideally-google-api-key:latest,GEMINI_API_KEY=ideally-google-api-key:latest,CRAWL4AI_API_KEY=ideally-crawl4ai-api-key:latest \
+  --set-secrets GOOGLE_API_KEY=ideally-google-api-key:latest,GEMINI_API_KEY=ideally-google-api-key:latest,CRAWL4AI_API_KEY=ideally-crawl4ai-api-key:latest,TYPESAFE_API_KEY=ideally-typesafe-api-key:latest \
   --update-env-vars NODE_ENV=production,PYTHON_BACKEND_URL=http://127.0.0.1:8000,GEMINI_MODEL=gemini-3.8-flash,GEMINI_FALLBACK_MODEL=gemini-3.1-flash-lite
 ```
 
